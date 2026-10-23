@@ -57,38 +57,78 @@ http://192.168.3.26:18000
 **NAT 内部网段**，只有宿主机自己能进去。手机连的是家里 WiFi 的
 `192.168.3.x`，两者不通。
 
-### 解决方法：在宿主机上加一条端口转发
+### 方法 A：手动改（最稳，推荐）
 
-用**管理员身份**打开 PowerShell，执行：
+**同样需要管理员身份**。打开记事本时也必须**以管理员身份运行**，否则保存会报「拒绝访问」。
+
+1. 右键开始菜单 → **Windows PowerShell (管理员)**
+2. 先备份：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "D:\WinServer2019\软件server\tools\setup-port-forwarding.ps1"
+copy C:\ProgramData\VMware\vmnetnat.conf C:\ProgramData\VMware\vmnetnat.conf.bak
 ```
 
-脚本会做四件事：
+3. 用管理员记事本打开配置：
 
-1. 备份 `C:\ProgramData\VMware\vmnetnat.conf`
-2. 写入转发规则 `18000 = 192.168.5.129:18000`
-3. 重启 `VMware NAT Service`
-4. 自检，并**直接告诉你手机上该填什么地址**
+```powershell
+notepad C:\ProgramData\VMware\vmnetnat.conf
+```
 
-跑完你会看到类似：
+4. 找到 `[incomingtcp]` 这一段，**在它下面另起一行**加入：
 
 ```
-================ 完成 ================
-手机与电脑连同一个 WiFi 后，在 APP 里填服务器地址：
+18000 = 192.168.5.129:18000
+```
+
+> 注意：该段里原本的 `#8887 = ...` 那几行都是**注释**（行首有 `#`），不要动。
+> 新加的行**不能带 `#`**，否则不生效。
+
+5. 保存，然后重启 NAT 服务：
+
+```powershell
+restart-service "VMware NAT Service"
+```
+
+6. 验证（在宿主机上跑，返回 `{"ok": true, ...}` 就成了）：
+
+```powershell
+curl http://127.0.0.1:18000/api/health
+```
+
+7. 放行防火墙（只需一次）：
+
+```powershell
+netsh advfirewall firewall add rule name="PhotoWall" dir=in action=allow protocol=TCP localport=18000
+```
+
+8. 在 APP 里填 **`http://192.168.3.26:18000`**（`192.168.3.26` 是这台电脑的 WiFi 地址，换网络就跟着变，用 `ipconfig` 查）。
+
+**回滚**：
+
+```powershell
+copy C:\ProgramData\VMware\vmnetnat.conf.bak C:\ProgramData\VMware\vmnetnat.conf
+restart-service "VMware NAT Service"
+```
+
+### 方法 B：跑脚本
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup-port-forwarding.ps1
+```
+
+脚本做的事和方法 A 完全一样，外加自动备份、自动检测 WiFi 地址并直接告诉你该填什么。
+已针对 Windows PowerShell 5.1 做过兼容（**整份脚本保持纯 ASCII**，原因见「坑 12」）。
+
+跑完会打印：
+
+```
+================ DONE ================
+On the phone (same WiFi), open the APP, tap the gear icon
+and set the server address to:
     http://192.168.3.26:18000
 ```
 
-把那个地址填进 APP 的服务器设置即可。
-
-**回滚**：脚本会在同目录留下 `vmnetnat.conf.bak-时间戳`，覆盖回去再重启服务就行。
-
-**如果 127.0.0.1 自检没通**，多半是 Windows 防火墙没放行 18000 端口，用管理员权限执行：
-
-```powershell
-New-NetFirewallRule -DisplayName "PhotoWall" -Direction Inbound -LocalPort 18000 -Protocol TCP -Action Allow
-```
+**回滚**：脚本会留下 `vmnetnat.conf.bak-时间戳`，覆盖回去再重启服务即可。
 
 ---
 
@@ -302,6 +342,40 @@ if origin == head or origin.startswith(head + ":"):
 
 原始版本第 5 行用 `$sdk` 拼 PATH，但那个变量从没赋值，导致
 `platform-tools`、`cmdline-tools` 实际一直不在 PATH 上。已修。
+
+### 12. PowerShell 5.1 按 GBK 解析 .ps1，中文注释会炸
+
+第一版 `setup-port-forwarding.ps1` 写了中文注释和中文 `Write-Host`，在
+Windows PowerShell 5.1 下直接报：
+
+```
+所在位置 ...setup-port-forwarding.ps1:115 字符: 12
++ Write-Host "锟斤拷...
+字符串缺少终止符: "。
+语句块或类型定义中缺少右“}”。
+```
+
+原因：**Windows PowerShell 5.1 读取 `.ps1` 时按系统 ANSI 代码页解码**
+（本机 `chcp` = 936 即 GBK），而文件是 UTF-8 无 BOM。中文字符被拆成
+半个 GBK 字符，其中某些字节正好落在引号范围里，把字符串"截断"了。
+
+三种解法（按可靠性排序）：
+
+1. **脚本全文纯 ASCII** ← 本项目采用，最省事，永远不会再犯
+2. 文件存成 **UTF-8 带 BOM**（`EF BB BF`），PS 5.1 见到 BOM 才会按 UTF-8 读
+3. 存成 UTF-16 LE
+
+验证方法：用解析器静态检查，不执行也能发现语法错误
+
+```powershell
+$errors = $null
+[void][System.Management.Automation.Language.Parser]::ParseFile(
+    'setup-port-forwarding.ps1', [ref]$null, [ref]$errors)
+$errors
+```
+
+上一轮我恰恰在记忆里记着这个坑，却还是写出了中文脚本 —— 教训是
+**给 PS 5.1 用的脚本，一律别写中文**。
 
 ---
 
