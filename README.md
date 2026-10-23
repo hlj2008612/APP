@@ -17,7 +17,14 @@ APK 解包后**看不到任何一张照片** —— 这是和「把图片打进�
 
 ## 一、装到手机
 
-下载：**[apk/app-release-1.0.0.apk](apk/app-release-1.0.0.apk)**（1.21 MB）
+下载：**[apk/app-release-1.0.1.apk](apk/app-release-1.0.1.apk)**（1.21 MB）
+
+> **1.0.1 修了什么**：照片墙（`#/wall`）一片空白。
+> 原因是 `src/core/renderer.js` 的 `thumbUrl()` / `fullUrl()` 还在拼
+> `images/thumbnails/N.webp` 这个**打包进 APK 的本地路径**，而构建时为
+> 防止照片泄漏已经把 `public/images` 移开了，所以永远 404。
+> 画报页和影院页一直是对的（它们走 `assetUrl(entry.thumb)`）。
+> 1.0.0 可以卸载了。
 
 装之前系统会提示「未知来源应用」，允许即可。装完桌面上出现图标「美琴的照片墙」。
 
@@ -377,6 +384,100 @@ $errors
 上一轮我恰恰在记忆里记着这个坑，却还是写出了中文脚本 —— 教训是
 **给 PS 5.1 用的脚本，一律别写中文**。
 
+### 13. 照片墙空白：改数据层时漏掉了 renderer.js
+
+`Pictorial.vue` 和 `Cinema.vue` 取图都写成 `assetUrl(entry.thumb)`，
+天然支持后端绝对 URL。但 `core/renderer.js`（照片墙引擎）是另一套写法：
+
+```js
+// 错的：照片已不在包内，这个路径永远 404
+export function thumbUrl(i) {
+    return assetUrl('images/thumbnails/' + i + '.webp', BASE_URL);
+}
+```
+
+症状很有迷惑性：**登录正常、清单 23 条、画报页和影院页都正常，只有照片墙全白**。
+因为其它页面走后端 URL 没问题，唯独这个页面拼的是本地静态路径。
+
+改法是先查清单里的真实地址，查不到才退回本地路径。
+
+**教训**：改数据来源时，不能只改显式 import 了清单的模块，
+还要全库搜一遍**硬编码的资源路径字符串**：
+
+```powershell
+Select-String -Path src\*.* -Recurse -Pattern 'images/thumbnails|images/full'
+```
+
+### 14. 异步清单 + 模块加载时执行的初始化 = 用到的是空数据
+
+`renderer.js` 的 `buildSizeTable()` 在模块顶层执行，把每张图的宽高比
+写进 `BASE_W` / `BASE_H`。原来清单是静态常量，这没问题；
+现在清单异步到达，函数执行时 `IMAGE_POOL` 还是空数组，
+于是全部退回内置的 `FALLBACK_RATIOS`（近似值），
+结果是 16:9 的横图被按 3:4 排，**照片被拉变形**。
+
+修法是在清单填充完成后重算一次。但 `config.js` 不能顶层 import
+`renderer.js` —— `renderer.js` 已经 import 了 `config.js`，
+会形成循环依赖、让导出在初始化期变成 `undefined`。用动态 import 绕开：
+
+```js
+// config.js 里，清单填好之后
+import('./renderer.js')
+    .then((m) => m.rebuildSizeTable && m.rebuildSizeTable())
+    .catch(() => {});
+```
+
+> Vite 会警告 `INEFFECTIVE_DYNAMIC_IMPORT`（因为别处已静态 import 该模块，
+> 拆不出独立 chunk）。这个警告无害，动态 import 仍然能正确拿到模块对象。
+
+### 15. 按下标取数组，删照片后会错位
+
+```js
+const entry = IMAGE_POOL[i - 1];   // 假设 id 与下标严格对应
+```
+
+照片固定 23 张时成立。但删掉中间某张后 id 会变成 `1,2,4,7...`，
+`IMAGE_POOL[i - 1]` 就会张冠李戴 —— 卡片上显示的是别的照片。
+改成按 id 查：`IMAGE_POOL.find((e) => e.id === i)`。
+
+### 16. 旧测试服务占着端口，导致同一地址行为不一致
+
+调试时发现：`192.168.3.26:18000` 登录正常，`127.0.0.1:18000` 报
+「用户名或口令不正确」。查 `Get-NetTCPConnection` 才看到**两个监听**：
+
+```
+127.0.0.1:18000   PID 11276  python.exe   ← 之前测试遗留的 server.py
+0.0.0.0:18000     PID 30680  vmnat        ← VMware 端口转发，正确
+```
+
+`127.0.0.1` 比 `0.0.0.0` 更精确，所以本机请求命中了残留服务。
+停掉那个 python 进程即恢复正常。
+
+```powershell
+Get-NetTCPConnection -LocalPort 18000 -State Listen |
+    Select-Object LocalAddress, OwningProcess
+```
+
+### 17. 图片 URL 写死内网 IP，APP 里照片全白
+
+后端原本把 `config.json` 里的 `public_base_url` 拼到图片地址前面，
+而这个值是写死的 `http://192.168.5.129:18000`（VMware NAT 内网地址）。
+手机走 `192.168.3.26` 转发进来时，登录和清单都正常，
+但拿到的图片地址指向一个它根本访问不到的内网 IP。
+
+改成**用请求自身的 Host 头**拼绝对地址：
+
+```python
+host_hdr = self.headers.get("Host", "") or ""
+if host_hdr and re.match(r"^[A-Za-z0-9.-]+(:[0-9]{1,5})?$", host_hdr):
+    base = "http://" + host_hdr
+else:
+    base = s.public_base_url
+```
+
+这样同一台后端被三条路径访问（`192.168.3.26` 转发 / `127.0.0.1` 本机 /
+`192.168.5.129` 内网）时，各自拿到的都是自己能访问的地址。
+
 ---
 
 ## 九、目录结构
@@ -384,7 +485,8 @@ $errors
 ```
 repo-app/
 ├─ apk/
-│   └─ app-release-1.0.0.apk          已签名，直接装
+│   ├─ app-release-1.0.0.apk          旧版（照片墙空白，留作对照）
+│   └─ app-release-1.0.1.apk          当前版本，已签名，直接装
 ├─ app-source/                         完整工程源码
 │   ├─ src/
 │   │   ├─ core/

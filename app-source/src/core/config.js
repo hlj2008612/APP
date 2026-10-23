@@ -117,6 +117,20 @@ export function loadImageManifest(force = false) {
                     ? '服务器上还没有照片'
                     : '照片数据不完整（缺少宽高信息）';
             }
+
+            // 清单到齐后重算照片墙的基准尺寸表。
+            //
+            // 为什么用动态 import：renderer.js 已经 import 了本模块，
+            // 在这里顶层 import renderer 会构成循环依赖，让 renderer 的
+            // 导出在初始化阶段变成 undefined。动态 import 在模块图完全
+            // 就绪之后才执行，绕开这个坑；而且清单没到之前根本不需要它。
+            //
+            // 尺寸表用错了的后果很直观：卡片会按 FALLBACK_RATIOS 的近似比例
+            // 排布，16:9 的横图被当成 3:4 竖图渲染，照片被拉变形。
+            import('./renderer.js')
+                .then((m) => { if (m && typeof m.rebuildSizeTable === 'function') m.rebuildSizeTable(); })
+                .catch(() => { /* 尺寸表重建失败不影响取图，静默降级 */ });
+
             return IMAGE_POOL;
         })
         .catch((err) => {
