@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  APP 改造：Android 9(P) 起的网络明文策略
+
+  系统默认 cleartextTrafficPermitted="false"，即只许 HTTPS。
+  本 APP 的后端是局域网里的私有服务器，没有域名、也没有可签的证书，
+  只能用 http://。不放行明文，所有接口和图片都会被系统直接拦断，
+  报「CLEARTEXT communication not permitted」。
+
+  为什么这里放开到「任意地址」而不是只写死一个 IP：
+  APP 里带了「服务器设置」，用户可以自己填地址（路由器换网段、
+  换一台机器跑后端、回环调试……），写死单个 IP 会让这个功能失效。
+  明文只影响传输层加密，鉴权仍由 HMAC 令牌 + 图片签名 URL 保证，
+  且照片只在局域网内传输。
+
+  日后接上 Cloudflare Tunnel 或配了受信任证书，把
+  cleartextTrafficPermitted 改成 false、删掉 AndroidManifest 里的
+  android:usesCleartextTraffic="true" 即可回到全 HTTPS。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

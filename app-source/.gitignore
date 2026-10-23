@@ -1,0 +1,40 @@
+# ================================================================
+#  「美琴的照片墙」APP
+# ================================================================
+
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+dist-ssr/
+*.local
+.build-report.json
+
+# ---- Capacitor / Android 构建产物 ----
+app-source/android/.gradle/
+app-source/android/app/build/
+app-source/android/build/
+app-source/android/local.properties
+
+# ---- 签名材料，绝对不能进仓库 ----
+*.jks
+*.keystore
+app-source/android/keystore/
+app-source/android/keystore.properties
+
+# ---- 编辑器 ----
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# ---- 构建时临时挪开的目录 ----
+.public-images-stash/
+
+# ==================================================================
+#  ⚠ 照片不放仓库
+#  public/images/ 里是原项目自带的照片副本。APP 的照片存在私有虚拟机
+#  后端，仓库里一份都不该有 —— 一旦提交，任何人都能 clone 下来看到。
+# ==================================================================
+app-source/public/images/
+app-source/assets-src/
+新加照片/

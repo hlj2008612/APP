@@ -1,0 +1,270 @@
+/* ================================================================
+   全局样式 / Global stylesheet
+   ----------------------------------------------------------------
+   这里只放"每个页面都需要"的规则。
+   切不可把 .item 之类的照片墙卡片样式挪进来 —— 那些由 PhotoWall.vue
+   的全局 <style> 块管理，因为它是由原生 JS 动态创建 DOM 的。
+   ================================================================ */
+
+:root {
+    --bg: #0d0d0d;
+
+    /* 主题色：原由已删除的 PageTransition.vue 在转场开始时动态覆盖。
+       现在导航转场由 PtrTransition.vue 负责，它自带四套 --ptr-* 主题变量，
+       不使用这个变量；此处仅为其它可能读取主题色的组件保留，值未变。 */
+    --theme-color: #8b6ce8;
+
+    /* 统一字体栈，避免每个组件重复声明 */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+
+    color-scheme: dark;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: var(--font-sans);
+    color: #e0e0e0;
+
+    /* 触摸端禁止双击缩放 / 长按选中，画布拖拽才跟手 */
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* 隐藏滚动条，避免干扰全屏画布 */
+::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+}
+* {
+    scrollbar-width: none;
+}
+
+/* ----------------------------------------------------------------
+   尊重系统的"减少动态效果"设置。
+   这是无障碍要求，同时也能让低端设备省电。
+   ptr 状态机在组件侧也读取这个开关（见 src/components/PtrTransition.vue
+   的 play()），命中时直接跳路由、不播转场。
+
+   ⚠️ 下面并列的两条规则各有分工，不要混为一谈：
+     1) 本条（压 animation-duration）：针对装饰性动画，例如 ptr 覆盖层里
+        无限循环的胶片色带与扫描线。
+     2) 文件末尾的 .ptr-wipe 放行规则：ptr 转场的擦入/擦出【不是装饰】，
+        它们的 animationend 是状态机的推进信号，不能被压成 0.01ms。
+
+   ⚠️ 另注：ptr 转场在【组件侧】还有一道短路 —— 检测到 reduce 时直接
+   router.push 而不启动转场（见 src/components/PtrTransition.vue），
+   所以正常情况下这条规则不会作用在 ptr 上。末尾的放行是第二道保险，
+   防止「有人在转场进行中切换系统设置」这种边界情况把状态机卡死。
+   ---------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    /* 只关闭装饰性的无限循环动画，保留功能性过渡 */
+    .transition-film::before {
+        animation: none !important;
+    }
+
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
+/* ----------------------------------------------------------------
+   ptr 转场在 reduced-motion 下的放行规则（第二道保险）。
+   原因见上方第 2 条说明：ptr-wipe-in / ptr-wipe-out 是状态机的驱动信号，
+   被压到 0.01ms 会让擦入与擦出在同一帧内结束，转场一闪而过或卡在 cover。
+   这里用更高优先级的选择器把这两条动画的时长恢复成参考站原值。
+   ---------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    .ptr-root[data-phase=cover] .ptr-wipe,
+    .ptr-root[data-phase=reveal] .ptr-wipe {
+        animation-duration: 0.28s !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
+/* ----------------------------------------------------------------
+   转场期间临时压低导航栏层级（缺陷修复，配合 PtrTransition.vue 的 setPtrActive）
+   ----------------------------------------------------------------
+   问题：.glass-nav 是 position:fixed + z-index:99999（见 src/components/NavBar.vue），
+   .ptr-root 是 position:fixed + z-index:20000，二者同属 body 的层叠上下文，
+   => 覆盖层永远盖不住导航栏（真 Chrome 实测 cover 阶段 elementFromPoint 命中 NAV）。
+
+   方案：转场进行中在 <html> 上挂 data-ptr-active，把导航栏压到覆盖层之下。
+   · 只改层级，不改 position/transform —— 导航栏在覆盖层之下渲染，结束后原位恢复，
+     没有重排、没有跳动，也不存在「永久降级」。
+   · 标记由组件在 start() 打上、在 busy 释放的同一回调里摘掉，
+     空闲态（.ptr-root.ptr-idle，visibility:hidden）下这条规则不生效，
+     导航栏照常可点。
+   · 具体度 0-2-1 > NavBar scoped 的 .glass-nav[data-v-*] 0-2-0，无需 !important；
+     保留 !important 是为了压过将来可能出现的内联 style。
+
+   为什么不用「把 .ptr-root 调到 100000」：那会把 PhotoWall 的 .close-btn（99998）、
+   Pictorial 的 .card-popover（2000）等所有浮层在转场期间一并埋掉，并且让覆盖层
+   永远依赖「谁的数值更大」这条脆弱的隐式契约。降导航栏是局部、可逆、成对的改动。
+   ---------------------------------------------------------------- */
+html[data-ptr-active] .glass-nav {
+    z-index: 0 !important;
+}
+
+/* 键盘用户能看到焦点环（:focus-visible 不会影响鼠标点击观感） */
+:focus-visible {
+    outline: 2px solid #4a9eff;
+    outline-offset: 2px;
+}
+/* ================================================================
+   参考站转场复刻：ptr 三波段斜向擦除转场
+   ----------------------------------------------------------------
+   逐字复刻自 https://forum.hanakos.cc 的站点级转场组件（代号 ptr）。
+   CSS 来自 https://forum.hanakos.cc/_next/static/css/c4c04ac64cdf6abc.css，
+   共 99 条规则（含 15 个 @keyframes），数值一字未改。
+
+   【机制】三个 .ptr-wipe 层，每层内含一个 skewX(-10deg) 的填充块：
+     cover  阶段：.ptr-wipe-in  从 translate3d(140% * var(--ptr-x), 0, 0) 擦到 0
+     reveal 阶段：.ptr-wipe-out 从 0 擦到 translate3d(-140% * var(--ptr-x), 0, 0)
+     时长 .28s cubic-bezier(.7,0,.2,1)，三层依次延迟 0 / .06s / .12s
+     （cover 是 a→b→main，reveal 反过来 main→b→a，所以延迟顺序在两条规则里相反）
+   --ptr-x 由组件按方向注入：next 为 1（从右侧擦入），prev 为 -1（从左侧擦入）。
+
+   【为什么这段必须放在全局 main.css，不能放进组件的 <style scoped>】
+   组件的 scoped 样式会给每条选择器追加 [data-v-xxxx] 属性限定符，
+   而本组件大量依赖 data-phase 状态选择器与后代组合，加限定符后匹配范围会变，
+   且 Teleport 到 body 之后组件作用域属性的行为更难推理。
+   参考站也是纯全局 CSS（一个 .ptr-* 命名空间），照搬即可。
+
+   【与 prefers-reduced-motion 的关系 —— 见文件末尾的排除规则】
+   擦入/擦出动画【不只是装饰】：ptr-wipe-in 的 animationend 是「cover→reveal」
+   的推进信号，ptr-wipe-out 的 animationend 是「→idle」的收尾信号。
+   若无条件把 animation-duration 压到 0.01ms，两条动画会在同一帧内结束，
+   状态机被瞬间推到底，转场表现为一闪而过甚至卡在 cover 不再揭幕。
+   所以末尾的 reduced-motion 块单独放行了 .ptr-wipe 的这两条动画。
+   （组件侧另有 prefers-reduced-motion 短路：直接跳转、不启动转场。）
+   ================================================================ */
+
+/* ----------------------------------------------------------------
+   【为什么 .ptr-root 是 pointer-events:none】
+
+   参考站源码里这里是 pointer-events:auto —— 因为它的覆盖层自带「横滑手势翻页」
+   （touchstart/touchend 判定），必须能接住触摸事件。我方【没有手势翻页】，
+   覆盖层纯粹是视觉层，不需要接收任何输入。
+
+   保留 auto 会造成两处实际故障（真 Chrome 1440x900 实测）：
+     1) 转场期间点击全被覆盖层吃掉，导航栏收不到任何事件 —— 用户报告的
+        「点了导航没反应」就是这个。实测 elementFromPoint(500,51) 在 cover 阶段
+        返回覆盖层内的无类名 SPAN，navHitSelf=false。
+     2) 键盘 Tab 焦点会被吸进覆盖层的装饰元素里。
+
+   改成 none 之后：覆盖层只负责画，事件全部穿透到下层真实 UI。
+   空闲态 .ptr-root.ptr-idle 原本就是 visibility:hidden + pointer-events:none，
+   所以这里只是把「转场进行中也不吃事件」补齐，两种状态行为一致。
+   ---------------------------------------------------------------- */
+.ptr-root{position:fixed;inset:0;z-index:20000;overflow:hidden;pointer-events:none;contain:strict;--ptr-accent:#ff2d78;--ptr-accent-rgb:255,45,120;--ptr-soft-rgb:255,109,168;--ptr-paper:#fff3f9;--ptr-flash-c:#ffe1ef;--ptr-split:#29e0ff;--ptr-panel-a:#221019;--ptr-panel-b:#120712;--ptr-panel-c:#09040a}
+.ptr-root.ptr-idle{visibility:hidden;pointer-events:none}
+.ptr-theme-purple{--ptr-accent:#a85cff;--ptr-accent-rgb:168,92,255;--ptr-soft-rgb:199,148,255;--ptr-paper:#f7f2ff;--ptr-flash-c:#ecdfff;--ptr-split:#2dffc8;--ptr-panel-a:#1c1026;--ptr-panel-b:#110a1c;--ptr-panel-c:#08040f}
+.ptr-theme-green{--ptr-accent:#2ee36b;--ptr-accent-rgb:46,227,107;--ptr-soft-rgb:122,240,166;--ptr-paper:#f0fdf4;--ptr-flash-c:#dcffe8;--ptr-split:#29b6ff;--ptr-panel-a:#0f2017;--ptr-panel-b:#08150e;--ptr-panel-c:#030a06}
+.ptr-theme-yellow{--ptr-accent:#ffd428;--ptr-accent-rgb:255,212,40;--ptr-soft-rgb:255,231,122;--ptr-paper:#fffbeb;--ptr-flash-c:#fff3c4;--ptr-split:#ff4fd8;--ptr-panel-a:#221d0e;--ptr-panel-b:#161106;--ptr-panel-c:#0a0703}
+.ptr-band,.ptr-letter,.ptr-mark,.ptr-row,.ptr-streak,.ptr-title-chip,.ptr-title-echo,.ptr-wipe{backface-visibility:hidden;transform-style:flat}
+.ptr-wipe{position:absolute;inset:0;will-change:transform}
+.ptr-root[data-phase=cover] .ptr-wipe{animation:ptr-wipe-in .28s cubic-bezier(.7,0,.2,1) both}
+.ptr-root[data-phase=reveal] .ptr-wipe{animation:ptr-wipe-out .28s cubic-bezier(.7,0,.2,1) both}
+.ptr-root[data-phase=cover] .ptr-wipe-a{animation-delay:0s}
+.ptr-root[data-phase=cover] .ptr-wipe-b{animation-delay:.06s}
+.ptr-root[data-phase=cover] .ptr-wipe-main{animation-delay:.12s}
+.ptr-root[data-phase=reveal] .ptr-wipe-main{animation-delay:0s}
+.ptr-root[data-phase=reveal] .ptr-wipe-b{animation-delay:.06s}
+.ptr-root[data-phase=reveal] .ptr-wipe-a{animation-delay:.12s}
+@keyframes ptr-wipe-in{0%{transform:translate3d(calc(140% * var(--ptr-x)),0,0)}to{transform:translateZ(0)}}
+@keyframes ptr-wipe-out{0%{transform:translateZ(0)}to{transform:translate3d(calc(-140% * var(--ptr-x)),0,0)}}
+.ptr-panel,.ptr-wipe-fill{position:absolute;top:-12%;bottom:-12%;left:-25%;right:-25%;transform:skewX(-10deg)}
+.ptr-wipe-a .ptr-wipe-fill{background-color:var(--ptr-accent);background-image:linear-gradient(105deg,var(--ptr-accent),rgb(var(--ptr-soft-rgb)) 60%,var(--ptr-accent))}
+.ptr-wipe-b .ptr-wipe-fill{background:var(--ptr-paper)}
+.ptr-panel{background-color:var(--ptr-panel-b);background-image:radial-gradient(130% 100% at 50% 40%,var(--ptr-panel-a) 0,var(--ptr-panel-b) 55%,var(--ptr-panel-c) 100%);overflow:hidden}
+.ptr-halftone{position:absolute;inset:0;background-image:radial-gradient(circle,rgba(var(--ptr-soft-rgb),.16) 1.2px,transparent 1.3px),repeating-linear-gradient(-55deg,hsla(0,0%,100%,.04) 0,hsla(0,0%,100%,.04) 30px,transparent 30px,transparent 60px);background-size:16px 16px,auto}
+.ptr-band{position:absolute;left:-15%;right:-15%;display:flex;align-items:center;overflow:hidden;will-change:transform;background-color:rgb(var(--ptr-accent-rgb));background-image:repeating-linear-gradient(90deg,rgba(18,6,13,.55),rgba(18,6,13,.55) 5px,transparent 0,transparent 150px),linear-gradient(180deg,hsla(0,0%,100%,.14),hsla(0,0%,100%,0) 55%)}
+.ptr-band:after,.ptr-band:before{content:"";position:absolute;left:0;right:0;height:13%;background:repeating-linear-gradient(90deg,rgba(13,4,9,.9),rgba(13,4,9,.9) 14px,transparent 0,transparent 30px)}
+.ptr-band:before{top:6%}
+.ptr-band:after{bottom:6%}
+.ptr-band-text{flex-shrink:0;white-space:nowrap;font-size:clamp(15px,4.5vh,30px);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.34em;line-height:1;color:rgba(18,6,13,.88);-webkit-user-select:none;-moz-user-select:none;user-select:none}
+@keyframes ptr-band-fade{0%{opacity:0}to{opacity:1}}
+@keyframes ptr-band-drift{0%{transform:translate3d(6%,0,0) rotate(-12deg)}to{transform:translate3d(-6%,0,0) rotate(-12deg)}}
+@keyframes ptr-band-drift-rev{0%{transform:translate3d(-6%,0,0) rotate(-12deg)}to{transform:translate3d(6%,0,0) rotate(-12deg)}}
+.ptr-band-1{top:4%;height:16%;animation:ptr-band-fade .4s ease-out .12s both,ptr-band-drift 3s linear infinite}
+.ptr-band-2{top:40%;height:18%;animation:ptr-band-fade .4s ease-out .2s both,ptr-band-drift-rev 3.6s linear infinite}
+.ptr-band-3{top:76%;height:15%;animation:ptr-band-fade .4s ease-out .28s both,ptr-band-drift 3.2s linear infinite}
+.ptr-scanlines{position:absolute;inset:0;pointer-events:none;background-image:repeating-linear-gradient(0deg,rgba(0,0,0,.2),rgba(0,0,0,.2) 2px,transparent 0,transparent 6px)}
+.ptr-rows{position:absolute;inset:-30%;transform:skewX(10deg) rotate(-12deg)}
+.ptr-row{position:absolute;left:-25%;right:-25%;display:flex;align-items:center;white-space:nowrap;overflow:hidden;will-change:transform;font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.04em;line-height:1;-webkit-user-select:none;-moz-user-select:none;user-select:none}
+.ptr-row>span{flex-shrink:0;padding:0 1.5rem}
+@keyframes ptr-row-slide{0%{transform:translateZ(0)}to{transform:translate3d(-50%,0,0)}}
+@keyframes ptr-row-slide-rev{0%{transform:translate3d(-50%,0,0)}to{transform:translateZ(0)}}
+.ptr-row-1{top:0;height:18%;font-size:clamp(56px,12vw,130px);-webkit-text-stroke:2px hsla(0,0%,100%,.3);color:transparent;animation:ptr-row-slide 6s linear infinite}
+.ptr-row-2{top:19%;height:7%;font-size:clamp(14px,2.4vw,24px);color:rgba(var(--ptr-soft-rgb),.6);animation:ptr-row-slide-rev 5s linear infinite}
+.ptr-row-3{top:27%;height:24%;font-size:clamp(80px,17vw,190px);-webkit-text-stroke:2.5px rgba(var(--ptr-accent-rgb),.75);color:transparent;animation:ptr-row-slide-rev 6.5s linear infinite}
+.ptr-row-4{top:52%;height:7%;font-size:clamp(14px,2.4vw,24px);color:hsla(0,0%,100%,.42);animation:ptr-row-slide 5.5s linear infinite}
+.ptr-row-5{top:60%;height:20%;font-size:clamp(64px,14vw,150px);-webkit-text-stroke:2px hsla(0,0%,100%,.42);color:transparent;animation:ptr-row-slide 7.5s linear infinite}
+.ptr-row-6{top:82%;height:7%;font-size:clamp(14px,2.4vw,24px);color:rgba(var(--ptr-soft-rgb),.55);animation:ptr-row-slide-rev 6s linear infinite}
+.ptr-mark{position:absolute;left:50%;top:50%;font-size:clamp(260px,68vh,640px);line-height:1;font-weight:900;-webkit-text-stroke:2px rgba(var(--ptr-accent-rgb),.4);color:transparent;-webkit-user-select:none;-moz-user-select:none;user-select:none;will-change:transform;animation:ptr-mark-drift 2.6s cubic-bezier(.2,.6,.3,1) both}
+@keyframes ptr-mark-drift{0%{opacity:0;transform:translate3d(-50%,-50%,0) rotate(-10deg) scale(.9)}20%{opacity:1}to{opacity:1;transform:translate3d(-50%,-50%,0) rotate(8deg) scale(1.05)}}
+.ptr-title{position:absolute;left:50%;top:46%;display:flex;flex-direction:column;align-items:center;gap:clamp(10px,2.4vw,20px);transform:translate3d(-50%,-50%,0) rotate(-2deg)}
+.ptr-title-word{position:relative;font-size:clamp(48px,14vw,130px);font-weight:900;font-style:italic;text-transform:uppercase;letter-spacing:.02em;line-height:1;white-space:nowrap}
+.ptr-letter{display:inline-block;animation:ptr-letter-slam .16s cubic-bezier(.2,.7,.3,1) calc(.3s + var(--ptr-i) * .04s) both}
+@keyframes ptr-letter-slam{0%{opacity:0;transform:translate3d(0,-.4em,0) scale(1.7) rotate(7deg)}62%{opacity:1;transform:translate3d(0,.04em,0) scale(.94) rotate(-2deg)}to{opacity:1;transform:translateZ(0) scale(1) rotate(0deg)}}
+.ptr-title-echo{position:absolute;left:0;top:0;-webkit-text-stroke:2px hsla(0,0%,100%,.4);color:transparent;animation:ptr-echo-stamp .24s cubic-bezier(.2,1,.3,1) var(--ptr-land) both}
+@keyframes ptr-echo-stamp{0%{opacity:0;transform:translate(0) scale(1)}to{opacity:1;transform:translate(-.05em,-.07em) scale(1.06)}}
+.ptr-title-ghost{position:absolute;left:0;top:0;opacity:0;animation:ptr-ghost-flick .22s linear var(--ptr-land) both}
+.ptr-title-ghost-c{color:var(--ptr-split);transform:translate(-.045em,.03em)}
+.ptr-title-ghost-m{color:var(--ptr-accent);transform:translate(.045em,-.02em)}
+@keyframes ptr-ghost-flick{0%,to{opacity:0}10%,28%{opacity:.85}34%,50%{opacity:0}56%,70%{opacity:.5}78%{opacity:0}}
+.ptr-title-main{position:relative;color:#fff;text-shadow:.045em .045em 0 var(--ptr-accent),.09em .09em 0 rgba(var(--ptr-accent-rgb),.35)}
+.ptr-title-hazard{width:clamp(150px,38vw,340px);height:clamp(7px,1.4vw,11px);background:repeating-linear-gradient(-55deg,var(--ptr-accent) 0,var(--ptr-accent) 10px,rgba(var(--ptr-accent-rgb),.16) 10px,rgba(var(--ptr-accent-rgb),.16) 20px);transform-origin:left center;animation:ptr-hazard-in .26s cubic-bezier(.2,1,.3,1) .52s both}
+@keyframes ptr-hazard-in{0%{opacity:0;transform:skewX(-10deg) scaleX(0)}to{opacity:1;transform:skewX(-10deg) scaleX(1)}}
+.ptr-title-chip{display:inline-flex;align-items:center;gap:.8em;padding:.42em 1.3em;background:var(--ptr-accent);color:#14060e;font-size:clamp(12px,3vw,18px);font-weight:800;letter-spacing:.28em;transform:skewX(-10deg);box-shadow:.25em .25em 0 hsla(0,0%,100%,.22);animation:ptr-chip-in .3s cubic-bezier(.2,1.2,.4,1) .46s both}
+.ptr-title-chip>i{width:1px;align-self:stretch;background:rgba(20,6,14,.55)}
+@keyframes ptr-chip-in{0%{opacity:0;transform:skewX(-10deg) translate3d(calc(36px * var(--ptr-x)),0,0)}to{opacity:1;transform:skewX(-10deg) translateZ(0)}}
+.ptr-corner-no{position:absolute;top:max(4.5%,env(safe-area-inset-top));right:6%;font-size:clamp(28px,7vw,56px);font-weight:900;font-style:italic;line-height:1;color:#fff;text-shadow:.08em .08em 0 rgba(var(--ptr-accent-rgb),.8);animation:ptr-fade-in .25s ease-out .4s both}
+.ptr-corner-no>em{font-size:.42em;color:hsla(0,0%,100%,.55);text-shadow:none;margin-left:.3em}
+.ptr-corner-loading{position:absolute;bottom:max(5%,env(safe-area-inset-bottom));left:6%;font-size:clamp(11px,2.8vw,15px);font-weight:800;letter-spacing:.32em;color:rgba(var(--ptr-soft-rgb),.9);animation:ptr-blink .8s linear .4s infinite both}
+@keyframes ptr-fade-in{0%{opacity:0}to{opacity:1}}
+@keyframes ptr-blink{0%,55%{opacity:1}56%,to{opacity:.25}}
+.ptr-edge{position:absolute;top:-12%;bottom:-12%;width:clamp(6px,1.2vw,14px);transform:skewX(-10deg);background:linear-gradient(180deg,var(--ptr-accent),rgb(var(--ptr-soft-rgb)) 50%,var(--ptr-accent));box-shadow:0 0 32px rgba(var(--ptr-accent-rgb),.7)}
+.ptr-edge-left{left:-25%}
+.ptr-edge-right{right:-25%}
+.ptr-streaks{position:absolute;inset:0;pointer-events:none}
+.ptr-streak{position:absolute;left:-45vw;height:3px;border-radius:2px;transform:translate3d(calc(180vw * var(--ptr-x)),0,0);will-change:transform;animation:ptr-streak-fly .6s linear infinite}
+@keyframes ptr-streak-fly{0%{transform:translate3d(calc(180vw * var(--ptr-x)),0,0)}to{transform:translate3d(calc(-180vw * var(--ptr-x)),0,0)}}
+.ptr-streak-1{top:9%;width:34vw;background:linear-gradient(90deg,transparent,hsla(0,0%,100%,.95),transparent);animation-duration:.55s}
+.ptr-streak-2{top:22%;width:20vw;background:linear-gradient(90deg,transparent,rgba(var(--ptr-soft-rgb),.9),transparent);animation-duration:.7s;animation-delay:.18s}
+.ptr-streak-3{top:41%;width:28vw;background:linear-gradient(90deg,transparent,hsla(0,0%,100%,.8),transparent);animation-duration:.62s;animation-delay:.34s}
+.ptr-streak-4{top:58%;width:16vw;height:2px;background:linear-gradient(90deg,transparent,rgba(var(--ptr-accent-rgb),.95),transparent);animation-duration:.5s;animation-delay:.1s}
+.ptr-streak-5{top:74%;width:30vw;background:linear-gradient(90deg,transparent,hsla(0,0%,100%,.85),transparent);animation-duration:.74s;animation-delay:.26s}
+.ptr-streak-6{top:88%;width:22vw;height:2px;background:linear-gradient(90deg,transparent,rgba(var(--ptr-soft-rgb),.85),transparent);animation-duration:.58s;animation-delay:.44s}
+.ptr-flash{position:absolute;inset:0;pointer-events:none;background:var(--ptr-flash-c);opacity:0;animation:ptr-flash .26s ease-out .38s both}
+@keyframes ptr-flash{0%{opacity:0}35%{opacity:.22}to{opacity:0}}
+.ptr-root.ptr-android .ptr-band-text,.ptr-root.ptr-android .ptr-row{text-rendering:optimizeSpeed}
+.ptr-root.ptr-android .ptr-panel,.ptr-root.ptr-android .ptr-wipe-a .ptr-wipe-fill{background-image:none}
+.ptr-root.ptr-android .ptr-band{will-change:auto;transform:rotate(-12deg)}
+.ptr-root.ptr-android .ptr-band-1{animation:ptr-band-fade .4s ease-out .12s both}
+.ptr-root.ptr-android .ptr-band-2{animation:ptr-band-fade .4s ease-out .2s both}
+.ptr-root.ptr-android .ptr-band-3{animation:ptr-band-fade .4s ease-out .28s both}
+.ptr-root.ptr-android .ptr-row-2,.ptr-root.ptr-android .ptr-row-4,.ptr-root.ptr-android .ptr-row-6{animation:ptr-band-fade .22s ease-out both;will-change:auto}
+.ptr-root.ptr-android .ptr-row-1{animation:ptr-row-slide 6s linear infinite,ptr-band-fade .22s ease-out both}
+.ptr-root.ptr-android .ptr-row-3{animation:ptr-row-slide-rev 6.5s linear infinite,ptr-band-fade .22s ease-out both}
+.ptr-root.ptr-android .ptr-row-5{animation:ptr-row-slide 7.5s linear infinite,ptr-band-fade .22s ease-out both}
+.ptr-root.ptr-android .ptr-row{left:-10%;right:-10%}
+.ptr-root.ptr-android .ptr-edge{box-shadow:0 0 12px rgba(var(--ptr-accent-rgb),.7)}
+.ptr-root.ptr-android .ptr-row-1,.ptr-root.ptr-android .ptr-row-3,.ptr-root.ptr-android .ptr-row-5{-webkit-text-stroke:0}
+.ptr-root.ptr-android .ptr-row-1{color:hsla(0,0%,100%,.26)}
+.ptr-root.ptr-android .ptr-row-3{color:rgba(var(--ptr-accent-rgb),.5)}
+.ptr-root.ptr-android .ptr-row-5{color:hsla(0,0%,100%,.38)}
+.ptr-root.ptr-android .ptr-mark{-webkit-text-stroke:0;font-size:clamp(180px,42vh,380px);color:rgba(var(--ptr-accent-rgb),.16)}
