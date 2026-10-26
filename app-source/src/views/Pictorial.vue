@@ -25,6 +25,17 @@
     -->
     <h1 class="pictorial-sr-only">画报 · 照片卡片</h1>
 
+    <!--
+      图片中转失败提示（与影院页同款）。
+      imgBridge 失败时只 resolve 空串 + 一条 console.warn，页面看起来就是
+      「卡片在、图没出来」—— 这与当初 PNA 拦截的表象一模一样，用户和运维
+      无法区分。这里把失败明确摆出来，并给一个可点的重试。
+    -->
+    <div v-if="bridgeErrorCount > 0" class="pictorial-img-warn" role="status">
+      <span>{{ bridgeErrorCount }} 张照片加载失败：请检查服务器地址或网络</span>
+      <button type="button" @click="retryBroken">重试</button>
+    </div>
+
     <div class="pictorial-inner">
       <div class="pictorial-tabs" role="group" aria-label="排序方式">
         <button type="button" class="pictorial-tab is-active" aria-pressed="true">默认</button>
@@ -68,7 +79,7 @@
                 -->
                 <div class="card-media" :style="{ aspectRatio: card.w + ' / ' + card.h }">
                   <img
-                    :src="card.src"
+                    :src="disp(card)"
                     alt="写真"
                     :width="card.w"
                     :height="card.h"
@@ -107,7 +118,7 @@
                     @click.stop="togglePreview($event, card)"
                   >
                     <img
-                      :src="card.src"
+                      :src="disp(card)"
                       alt=""
                       aria-hidden="true"
                       width="40"
@@ -233,7 +244,7 @@
         }"
       >
         <img
-          :src="activeCard.full"
+          :src="dispFull(activeCard)"
           :alt="'照片 ' + padId(activeCard.uid) + ' 预览'"
           decoding="async"
           draggable="false"
@@ -275,7 +286,7 @@
     >
       <figure class="photo-viewer-figure" @click.stop>
         <img
-          :src="viewerCard.full"
+          :src="dispFull(viewerCard)"
           :alt="'照片 ' + padId(viewerCard.uid) + ' 大图'"
           decoding="async"
           draggable="false"
@@ -309,36 +320,112 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, 
 // config.js 的 validatePool() 会校验张数与字段，无效时返回空数组。
 // 绕过它直接取模，空池时 entry 是 undefined，读 entry.thumb 会抛 TypeError
 // 整页白屏（Cinema.vue 里记录过同样的实测）。空池时本页渲染空网格，符合规格第 5.4 条。
-import { IMAGE_POOL } from '../core/config.js';
+import { IMAGE_POOL, whenImagesReady } from '../core/config.js';
 import { assetUrl } from '../core/imageManifest.js';
+import { bridgeUrl, shouldBridge, onEvict, onBridgeError } from '../core/imgBridge.js';
 
 /**
- * 卡片数据（一次性构建，不随列数变化重建）。
- * 地址必须走 assetUrl(entry.thumb)：清单里是 "images/thumbnails/1.webp" 这样的
- * 相对路径，前缀由 import.meta.env.BASE_URL 提供，子路径部署才不会 404。
- * 这里绝不能写死 /images/thumbnails/x.webp（规格第 5.1 条）。
+ * 卡片数据（源自后端清单）。
+ *
+ * ⚠️ APP 改造：原来是 `const cards = IMAGE_POOL.map(...)` 的静态常量，
+ * 但清单现在由 /api/photos 异步返回 —— 模块初始化时 IMAGE_POOL 还是空的，
+ * 静态常量会永远停在空数组，画报页整页空白。
+ * 所以改成 ref，数据到达后在 onMounted 里重建一次。
+ *
+ * 地址必须走 assetUrl(entry.thumb)：清单里是后端返回的绝对地址
+ * （带签名），assetUrl 会原样放行；老数据是 "images/..." 相对路径时
+ * 仍然按 BASE_URL 拼接（见 imageManifest.js 的三条分支）。
  */
-const cards = IMAGE_POOL
-  // 清单条目必须带 id 与 thumb：缺 id 会让 :key 与 data-uid 全部变成 undefined
-  // （Vue 报重复 key、卡片无法区分），缺 thumb 会请求 /undefined 拿 404。
-  // 生成脚本目前总会写出这两个字段，这里只是防御，不改变正常路径。
-  .filter((entry) => entry && entry.id != null && entry.thumb)
-  .map((entry, i) => ({
-    uid: entry.id,
-    src: assetUrl(entry.thumb),
-    // 头像弹层用的大图：清单里 full 是 1600px 版本（见 imageManifest.js 的 ImageEntry）。
-    // 继续走 assetUrl()，而不是手拼路径 —— 子路径部署（gh-pages 的 /mqz/）才不会 404。
-    // full 字段缺失时退回 thumb：宁可糊一点，也不要弹层里是张裂图。
-    full: assetUrl(entry.full || entry.thumb),
-    w: entry.w,
-    h: entry.h,
-    // 原图像素宽高，弹层按它算显示高宽比（w/h 是缩略图的宽度，比例相同但语义不同）。
-    fw: entry.w,
-    fh: entry.h,
-    // 首屏前几张优先加载：全部 lazy 会让 LCP 等到滚动容器的懒加载判定，
-    // 首屏出现一段空白。6 张 ≈ 一屏两行的量。
-    eager: i < 6,
-  }));
+function buildCards() {
+  return IMAGE_POOL
+    // 清单条目必须带 id 与 thumb：缺 id 会让 :key 与 data-uid 全部变成 undefined
+    // （Vue 报重复 key、卡片无法区分），缺 thumb 会请求 /undefined 拿 404。
+    .filter((entry) => entry && entry.id != null && entry.thumb)
+    .map((entry, i) => ({
+      uid: entry.id,
+      src: assetUrl(entry.thumb),
+      // 头像弹层用的大图：清单里 full 是 1600px 版本（见 imageManifest.js 的 ImageEntry）。
+      // 继续走 assetUrl()，而不是手拼路径 —— 子路径部署（gh-pages 的 /mqz/）才不会 404。
+      // full 字段缺失时退回 thumb：宁可糊一点，也不要弹层里是张裂图。
+      full: assetUrl(entry.full || entry.thumb),
+      w: entry.w,
+      h: entry.h,
+      // 原图像素宽高，弹层按它算显示高宽比（w/h 是缩略图的宽度，比例相同但语义不同）。
+      fw: entry.w,
+      fh: entry.h,
+      // 首屏前几张优先加载：全部 lazy 会让 LCP 等到滚动容器的懒加载判定，
+      // 首屏出现一段空白。6 张 ≈ 一屏两行的量。
+      eager: i < 6,
+    }));
+}
+
+const cards = ref(buildCards());
+
+// 异步等清单时页面可能已经卸载 —— 到达后不能再动已销毁的 DOM。
+let isUnmounted = false;
+
+/* --------------------------------------------------- 图片地址中转 */
+
+/**
+ * 后端是明文 http 时，<img src> 在真机 WebView 里会被 Private Network
+ * Access 拦截（fetch 却能成功）。这里统一走中转：先 fetch 成 blob 再显示。
+ * 详见 core/imgBridge.js 的说明。
+ *
+ * 用一个大容器存「原始地址 -> 可显示地址」，模板里通过 disp(card) 取。
+ * 不用 computed 是因为卡片是数组，每个都要各自异步转换。
+ */
+const dispMap = reactive(new Map());
+
+function resolveInto(url) {
+  const u = String(url || '');
+  if (!u || dispMap.has(u)) return;
+  if (!shouldBridge(u)) { dispMap.set(u, u); return; }
+  dispMap.set(u, '');  // 先占位，避免重复发起
+  bridgeUrl(u).then((out) => {
+    if (out) dispMap.set(u, out);
+    else dispMap.delete(u);  // 失败就删掉，下次重试
+  });
+}
+
+// imgBridge 的缓存超过上限时会 revoke 最旧的 blob URL（FIFO）。
+// 不订阅的话 dispMap 会一直记着一个死地址，图片裂开且不再重试。
+// 当前查看大图用的那张也删不坏：模板下次渲染走 disp() 会重新中转。
+onEvict((src, deadUrl) => {
+  if (dispMap.get(src) === deadUrl) dispMap.delete(src);
+});
+
+/* ---------------------------------------------------------------
+   中转失败可见化（见模板里的 pictorial-img-warn）
+   --------------------------------------------------------------- */
+const bridgeErrorCount = ref(0);
+const brokenUrls = new Set();
+const undoBridgeError = onBridgeError((src) => {
+  if (brokenUrls.has(src)) return;   // 同一地址只记一次
+  brokenUrls.add(src);
+  bridgeErrorCount.value += 1;
+});
+
+/** 重试：清掉失败记录与本地映射，模板下一帧会重新发起中转。 */
+function retryBroken() {
+  for (const u of brokenUrls) dispMap.delete(u);
+  brokenUrls.clear();
+  bridgeErrorCount.value = 0;
+}
+
+/** 模板用：拿到某张卡片的可显示缩略图地址 */
+function disp(card) {
+  if (!card) return '';
+  resolveInto(card.src);
+  return dispMap.get(card.src) || '';
+}
+
+/** 模板用：拿到某张卡片的可显示大图地址 */
+function dispFull(cardOrUrl) {
+  const url = typeof cardOrUrl === 'string' ? cardOrUrl : (cardOrUrl && cardOrUrl.full);
+  if (!url) return '';
+  resolveInto(url);
+  return dispMap.get(url) || '';
+}
 
 /* ------------------------------------------------------------ 列数 */
 
@@ -426,7 +513,7 @@ const estimateHeight = (columnWidth, card) => {
  */
 function assignColumns(count) {
   const buckets = Array.from({ length: count }, () => []);
-  if (!cards.length || count <= 0) return buckets;
+  if (!cards.value.length || count <= 0) return buckets;
 
   const totals = new Array(count).fill(0);
   // 【取卡片实宽，不是列的 clientWidth】列上有 padding-left: 1rem（窄屏 0.5rem），
@@ -435,7 +522,7 @@ function assignColumns(count) {
   // 横图误差小、竖图误差大，正好和「竖图更高」的方向叠加。
   const columnWidth = gridRef.value?.querySelector('.card-shell')?.clientWidth || 262;
 
-  for (const card of cards) {
+  for (const card of cards.value) {
     let target = 0;
     for (let i = 1; i < count; i += 1) {
       if (totals[i] < totals[target]) target = i;
@@ -613,15 +700,28 @@ onMounted(() => {
   window.addEventListener('resize', onResize, { passive: true });
   // 点窗口外（切到别的应用 / 地址栏）时关闭预览：非模态弹层留在屏幕上没有意义。
   window.addEventListener('blur', handleWindowBlur);
+
+  // 照片清单是异步来的（/api/photos）。到达后重建卡片数据再铺一次版；
+  // 已经就绪时这个 then 立即执行，重建结果与初始值相同，rebuild() 的
+  // layoutKey 指纹会让它成为空操作。
+  whenImagesReady().then(() => {
+    if (isUnmounted) return;
+    cards.value = buildCards();
+    measured.clear();
+    rebuild();
+  });
 });
 
 onUnmounted(() => {
+  isUnmounted = true;
   window.removeEventListener('resize', onResize);
   window.removeEventListener('blur', handleWindowBlur);
 
   // 弹层：先终止出场定时器，再解绑全局监听，最后清状态。
   // 【顺序不能反】closePreview() 会重新挂一个定时器并再次调 detach，
   // 这里直接走幂等的清理路径，不留任何异步尾巴。
+  undoBackHandler();            // 离开画报页：取消返回键注册，避免影响别的页面
+  undoBridgeError();            // 取消失败订阅，防止已卸载页面继续累加计数
   clearHoverTimers();   // 悬停弹出/关闭的定时器也必须作废，否则卸载后仍会调 openPreview
   viewerCard.value = null;      // 大图同样不能留在 DOM 里（1600px 原图）
   viewerReturnFocus = null;
@@ -1315,6 +1415,7 @@ function attachGlobalListeners() {
   // scroll 走零布局的算术跟随；resize 才重新测量。
   window.addEventListener('scroll', handleScrollChange, { passive: true, capture: true });
   window.addEventListener('resize', handleResizeChange, { passive: true });
+  window.addEventListener('pointermove', trackPointerMove, { passive: true });
   window.addEventListener('mousemove', trackPointer, { passive: true });
   // 触摸滚动转发：见下方 forwardPopoverTouch 的说明。
   // passive: false —— 因为要 preventDefault 接管；只在浮层打开期间存在。
@@ -1333,6 +1434,7 @@ function detachGlobalListeners() {
   document.removeEventListener('keydown', handleDocKeydown, true);
   window.removeEventListener('scroll', handleScrollChange, { capture: true });
   window.removeEventListener('mousemove', trackPointer);
+  window.removeEventListener('pointermove', trackPointerMove);
   window.removeEventListener('resize', handleResizeChange);
   document.removeEventListener('touchstart', onPopoverTouchStart, true);
   document.removeEventListener('touchmove', onPopoverTouchMove, true);
@@ -1391,6 +1493,8 @@ function openPreview(anchor, card) {
   // 顺序：先关掉上一张（动画会走 closing，但新弹层直接替换 ref），再设置新锚点。
   activeCard.value = card;
   popoverAnchor = anchor;
+  // 默认按「非悬停」处理，悬停那条路（onAvatarEnter 的定时器）会在开之前置 true。
+  pointerOpenedPopover = false;
 
   // 尺寸/位置必须在弹层【渲染前】算好并写进 style，
   // 否则会先以 top:0/left:0 出现在左上角再跳位（一帧可见的错位）。
@@ -1513,6 +1617,23 @@ let lastPointerMoveAt = 0;
 let pointerKnown = false;
 
 /**
+ * 资料卡是不是【鼠标悬停】打开的。
+ *
+ * 【为什么需要（2026-10-24 真机/模拟器实测缺陷）】
+ * 手机上 tap 开头像时，事件顺序是 pointerdown → pointerup → click，而
+ * mousemove 由触摸合成、click 之后不会再触发新的 mousemove。
+ * 旧实现里 trackPointer 只监听 mousemove，于是「tap 打开的弹层」指针位置
+ * 永远是上一次鼠标留下的（或根本没有）→ maybeCloseByPointer 判成「已离开」
+ * → 约 224ms × 6 ≈ 1.4 秒后自动关闭，用户点不到「查看大图」。
+ *
+ * 现在按打开方式区分：
+ *   - 悬停打开（mouseenter 那条路）：保持原样，靠指针位置判断离开；
+ *   - tap/键盘/程序化打开：指针只是「恰好停在哪里」的证据不足，
+ *     不再用指针裁决，改由「点弹层外部 / Esc / 再点头像」关闭。
+ */
+let pointerOpenedPopover = false;
+
+/**
  * 本轮「指针夹在头像与弹层之间」的重排次数。
  * 【为什么要有上限】若只按「指针还在空隙里」无限重排，指针停在缝隙中不动时
  * 定时器会永远每 220ms 重排一次（真机实测静止 3 秒创建 14 次），
@@ -1540,6 +1661,7 @@ function onAvatarEnter(e, card) {
   hoverOpenTimer = setTimeout(() => {
     hoverOpenTimer = 0;
     clearCloseTimer();
+    pointerOpenedPopover = true;   // 悬停打开的才用指针位置裁决关闭
     openPreview(anchor, card);
   }, AVATAR_OPEN_DELAY);
 }
@@ -1763,6 +1885,11 @@ function onAvatarLeave(viaBlur = false, viaPopover = false) {
 function maybeCloseByPointer() {
   if (!activeCard.value) return;
 
+  // 【tap / 键盘打开的弹层不按指针裁决】见 pointerOpenedPopover 的注释：
+  // 触摸不会在 post-click 时更新指针位置，误判一次就会把弹层关掉。
+  // 这类弹层由「点外部 / Esc / 再点头像」关闭，用户能安心去点「查看大图」。
+  if (!pointerOpenedPopover) return;
+
   // 从未收到过指针位置：按「已离开」处理（见 pointerKnown 注释）
   if (!pointerKnown) {
     closePreview();
@@ -1818,6 +1945,12 @@ function trackPointer(e) {
   lastPointerMoveAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
+/** 纯移动指针（不是按下）才更新位置：触摸拖动/滑动结束时的坐标不应影响关闭判定。 */
+function trackPointerMove(e) {
+  if (e && e.pointerType && e.pointerType !== 'mouse') return;
+  trackPointer(e);
+}
+
 /**
  * 资料卡里的「查看大图」：关闭资料卡，打开全屏大图。
  *
@@ -1868,6 +2001,8 @@ function togglePreview(e, card) {
   }
   // 上一张还在 closing 的定时器里，先取消它的卸载，避免它把新弹层清掉。
   clearCloseTimer();
+  // tap / 键盘打开：标记为非悬停来源，交给「点外部 / Esc / 再点头像」关闭
+  pointerOpenedPopover = false;
   openPreview(anchor, card);
 }
 
@@ -1893,6 +2028,23 @@ const onPopoverAnimEnd = (e) => {
 
 /** 出场动画时长（ms），与 CSS 的 300ms 保持一致。 */
 const POPOVER_DURATION = 300;
+
+/* ---------------------------------------------------------------
+   返回键：先关大图 → 再关资料卡 → 最后才退页面（Android 习惯）
+
+   没有原生壳时（比如浏览器里直接打开），window.__pwRegisterBack__
+   不存在，这里是空操作，不影响 Web 版行为。
+   --------------------------------------------------------------- */
+let undoBackHandler = () => {};
+onMounted(() => {
+  const register = typeof window !== 'undefined' ? window.__pwRegisterBack__ : null;
+  if (typeof register !== 'function') return;
+  undoBackHandler = register(() => {
+    if (viewerCard.value) { closeViewer(); return true; }
+    if (activeCard.value) { closePreview(); return true; }
+    return false;   // 两层都没开：交给 App.vue 的栈去退页面
+  });
+});
 
 // 首屏同步布局：在 setup 阶段就把列填好，模板第一次渲染即有卡片。
 columns.value = assignColumns(columnCount.value);
@@ -2934,5 +3086,44 @@ columns.value = assignColumns(columnCount.value);
     width: calc(100vw - 24px);
     border-radius: 14px;
   }
+}
+
+/* ================================================================
+   中转失败提示条（与影院页同款，见模板注释）
+   固定贴导航栏下方，不参与瀑布流布局，不会把卡片挤动。
+   ================================================================ */
+.pictorial-img-warn {
+  position: fixed;
+  top: 88px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92vw, 520px);
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 138, 101, 0.45);
+  border-radius: 10px;
+  background: rgba(28, 16, 14, 0.92);
+  color: #ffb59b;
+  font-size: 12.5px;
+  line-height: 1.35;
+  backdrop-filter: blur(6px);
+}
+
+.pictorial-img-warn button {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 181, 155, 0.5);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pictorial-img-warn button:hover {
+  background: rgba(255, 181, 155, 0.14);
 }
 </style>

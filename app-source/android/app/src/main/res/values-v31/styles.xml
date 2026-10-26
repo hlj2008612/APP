@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+（API 31）启动画面主题。详见 docs/app-icon-spec.md 第 3.4 节。
+
+  为什么要单独一份 values-v31：
+    android:windowSplashScreen* 系列属性是 API 31 才有的，写在默认
+    values/ 里，低版本设备解析时会被忽略（不报错），但 aapt 可能告警；
+    更关键的是 android:windowSplashScreenBehavior 这类枚举值只在 31+
+    有意义。分版本目录是最省心的做法。
+
+  windowSplashScreenAnimatedIcon 用前景层，配合
+  windowSplashScreenIconBackgroundColor 垫一个深色圆角方块：
+  图标是深色调的，直接贴在 #0D0D0D 上会糊成一团。
+  标准做法是让衬底色与图标背景同色，这里两者都是 #0D0D0D，
+  所以视觉上只看得到前景的白色相框，边界干净。
+-->
+<resources>
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@drawable/splash</item>
+
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/ic_launcher_background</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+</resources>

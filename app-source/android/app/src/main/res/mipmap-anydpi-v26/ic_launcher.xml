@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标（API 26+）。详见 docs/app-icon-spec.md 第 3.2 节。
+
+  图层说明
+    background  @color/ic_launcher_background  纯色，无边，安全
+    foreground  @mipmap/ic_launcher_foreground 108dp 位图，主体落在中央 66dp
+    monochrome  @mipmap/ic_launcher_monochrome Android 13+ 主题化图标
+                （资源缺失时系统会尝试用 foreground 的 alpha，那时彩色照片墙
+                  会被压成灰黑一块；所以这个图层建议明确提供）
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
+</adaptive-icon>

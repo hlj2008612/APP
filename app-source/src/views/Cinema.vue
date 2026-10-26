@@ -18,6 +18,18 @@
     -->
     <h1 class="cinema-sr-only">影院模式 · 照片墙</h1>
 
+    <!--
+      图片中转失败提示。
+      【为什么必须有】imgBridge 一旦拿不到图片字节（后端 CORS 白名单漏了这个页面源、
+      或断网），页面就只会是满屏空白 + 一条 console.warn —— 与当初 Private Network
+      Access 拦截的表象完全一样，用户与运维都无法区分。这里把失败摆到明面上。
+      样式沿用本页现有的深色 + 细边框语言，不用小部件库。
+    -->
+    <div v-if="bridgeErrorCount > 0" class="cinema-img-warn" role="status">
+      <span>{{ bridgeErrorCount }} 张照片加载失败：请检查服务器地址或网络</span>
+      <button type="button" @click="retryBroken">重试</button>
+    </div>
+
     <div class="cinema-shell">
       <!-- ============ 顶部霓虹跑马灯 ============ -->
       <div class="neon-marquee" aria-hidden="true">
@@ -62,7 +74,7 @@
                   :aria-hidden="card.duplicate ? 'true' : undefined"
                 >
                   <img
-                    :src="card.src"
+                    :src="disp(card)"
                     :alt="card.alt"
                     :width="card.w"
                     :height="card.h"
@@ -114,13 +126,14 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, onUnmounted, reactive, ref, shallowRef } from 'vue';
 // 【必须】从 config.js 取 IMAGE_POOL，而不是直接从 imageManifest.js 拿原始清单：
 // config.js 的 validatePool() 会校验张数与字段，无效时返回空数组。
 // 绕过它直接取模，等于把这道防线拆掉 —— 空池时 entry 是 undefined，
 // 读 entry.thumb 会抛 TypeError，整页白屏（实测已复现）。
 import { IMAGE_POOL } from '../core/config.js';
 import { assetUrl } from '../core/imageManifest.js';
+import { bridgeUrl, shouldBridge, onEvict, onBridgeError } from '../core/imgBridge.js';
 
 /**
  * 每列滚动时长（秒）—— 参考站实测值，按列序号取用（第 1 列 55s …）。
@@ -135,7 +148,11 @@ const MARQUEE_TEXT =
 /** 序号补零，alt 文案用（照片 07 而不是 照片 7，等宽视觉更整齐）。 */
 const pad2 = (n) => String(n).padStart(2, '0');
 
-const POOL_SIZE = IMAGE_POOL.length;
+// ⚠️ APP 改造：原来这里是 `const POOL_SIZE = IMAGE_POOL.length`。
+// 清单改为 /api/photos 异步返回后，模块初始化时长度恒为 0，
+// 于是 buildColumns() 永远返回空数组，影院页整页没有照片。
+// 改成函数，每次构建时读当前张数。
+const poolSize = () => IMAGE_POOL.length;
 
 /**
  * 候选列数，从多到少。选列的算法会从 MAX 往下试，取第一个几何上成立的。
@@ -175,10 +192,11 @@ const pickInitialColumnCount = (width) => {
 const buildColumns = (count) => {
   // 空池（清单缺失或校验失败）时不构建任何列：舞台渲染成空的，
   // 跑马灯与骨架照常显示 —— 这是降级，不是崩溃。
-  if (POOL_SIZE === 0 || count <= 0) return [];
+  const size = poolSize();
+  if (size === 0 || count <= 0) return [];
 
   // 列数不能超过照片数，否则会出现没有任何卡片的空列（高度 0，动画跑在空气上）。
-  const effective = Math.min(count, POOL_SIZE);
+  const effective = Math.min(count, size);
 
   const buckets = Array.from({ length: effective }, () => []);
   IMAGE_POOL.forEach((entry, index) => {
@@ -221,6 +239,58 @@ const columns = shallowRef([]);
 const columnCount = ref(0);
 
 /**
+ * 后端是明文 http 时，<img src> 在真机 WebView 里会被 Private Network
+ * Access 拦截（fetch 却能成功）。这里统一走中转，详见 core/imgBridge.js。
+ */
+const dispMap = reactive(new Map());
+
+function resolveInto(url) {
+  const u = String(url || '');
+  if (!u || dispMap.has(u)) return;
+  if (!shouldBridge(u)) { dispMap.set(u, u); return; }
+  dispMap.set(u, '');
+  bridgeUrl(u).then((out) => {
+    if (out) dispMap.set(u, out);
+    else dispMap.delete(u);
+  });
+}
+
+// 同 Pictorial：缓存淘汰后必须把死 blob 地址从本地映射里删掉，否则不重试。
+onEvict((src, deadUrl) => {
+  if (dispMap.get(src) === deadUrl) dispMap.delete(src);
+});
+
+/* ---------------------------------------------------------------
+   中转失败可见化（见模板里的 cinema-img-warn）
+   imgBridge 失败只 resolve 空串，不抛错；订阅它把失败次数显示出来，
+   否则 CORS 一挂就是整页静默空白（和 PNA 缺陷一个表象）。
+   --------------------------------------------------------------- */
+const bridgeErrorCount = ref(0);
+const brokenUrls = new Set();
+const undoBridgeError = onBridgeError((src) => {
+  if (brokenUrls.has(src)) return;   // 同一个地址只记一次，避免重试风暴把计数刷爆
+  brokenUrls.add(src);
+  bridgeErrorCount.value += 1;
+});
+
+/** 重试：清掉失败记录与本地映射，让模板下一帧重新发起中转。 */
+function retryBroken() {
+  for (const u of brokenUrls) dispMap.delete(u);
+  brokenUrls.clear();
+  bridgeErrorCount.value = 0;
+}
+
+onUnmounted(() => { undoBridgeError(); });
+
+
+/** 模板用：拿到某张卡片的可显示地址 */
+function disp(card) {
+  if (!card || !card.src) return '';
+  resolveInto(card.src);
+  return dispMap.get(card.src) || '';
+}
+
+/**
  * 判断当前 DOM 里「每列最少张数 >= 单屏可见张数」是否成立。
  *
  * 【为什么必须实测而不是算】可见张数 = ceil(列高 / 单卡步长)，而：
@@ -247,7 +317,7 @@ const isColumnCountSafe = () => {
 
   // 单份内容 = 轨道的一半；屏幕上同时可见的卡片数 = ceil(列高 / 步长)
   const visible = Math.ceil(colH / step);
-  const minCards = Math.floor(POOL_SIZE / colCount);
+  const minCards = Math.floor(poolSize() / colCount);
   return minCards >= visible;
 };
 
@@ -829,5 +899,47 @@ const isPaused = ref(false);
   .cinema-page {
     padding-top: 84px;
   }
+}
+
+/* ================================================================
+   中转失败提示条
+   ----------------------------------------------------------------
+   固定贴在导航栏下方（NavBar 底边 80px，这里留 8px 呼吸），
+   不参与舞台布局，所以不会把斜向照片流挤动一像素。
+   暗底 + 细描边 + 暖色文字，沿用本页已有的深色语言。
+   ================================================================ */
+.cinema-img-warn {
+  position: fixed;
+  top: 88px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92vw, 520px);
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 138, 101, 0.45);
+  border-radius: 10px;
+  background: rgba(28, 16, 14, 0.92);
+  color: #ffb59b;
+  font-size: 12.5px;
+  line-height: 1.35;
+  backdrop-filter: blur(6px);
+}
+
+.cinema-img-warn button {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 181, 155, 0.5);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cinema-img-warn button:hover {
+  background: rgba(255, 181, 155, 0.14);
 }
 </style>

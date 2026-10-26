@@ -1,7 +1,42 @@
 import { state, setCanvas } from './state.js';
 import { WORLD_COLS, WORLD_ROWS, TOTAL_IMAGES, STEP, IMAGE_POOL } from './config.js';
 import { assetUrl } from './imageManifest.js';
+import { bridgeUrl, shouldBridge, onEvict } from './imgBridge.js';
 import { mod } from './utils.js';
+
+// ================================================================
+//  图片地址中转
+//  ----------------------------------------------------------------
+//  后端是明文 http 时，真机 WebView 会把 <img src="http://..."> 直接按
+//  Private Network Access 拦掉（fetch 却能成功）。这里统一改成
+//  「先 fetch 成 blob，再赋 src」，详见 imgBridge.js。
+//
+//  已经在转换中的地址记一份，避免同一张图在滚动中被反复发起请求。
+const bridgedSet = new Map();
+
+// 【必须订阅淘汰】imgBridge 的缓存超过 MAX_CACHE 时会 revoke 掉最旧的 blob URL。
+// 如果这里还留着那个已失效的地址，卡片下次重建时直接赋一个死 blob，
+// 图片永久裂开且不会自愈。淘汰通知一到就把这一条删掉，下次自然会重新中转。
+onEvict((src, deadUrl) => {
+    if (bridgedSet.get(src) === deadUrl) bridgedSet.delete(src);
+});
+
+function setImgSrc(img, url) {
+    const u = String(url || '');
+    if (!u) { img.removeAttribute('src'); return; }
+    if (!shouldBridge(u)) { img.src = u; return; }
+
+    const cached = bridgedSet.get(u);
+    if (cached) { img.src = cached; return; }
+
+    bridgeUrl(u).then((out) => {
+        if (!out) return;
+        bridgedSet.set(u, out);
+        // 等待期间这张卡片可能已经换图了 —— 用 dataset 记下最后一次请求的地址
+        if (img.dataset.pendingSrc === u) img.src = out;
+    });
+    img.dataset.pendingSrc = u;
+}
 
 // ================================================================
 //  卡片渲染引擎
@@ -33,6 +68,9 @@ function buildSizeTable() {
         let ratio = FALLBACK_RATIOS[i] || 1;
 
         // 清单字段名是 w / h（不是 width / height），生成脚本定义的。
+        // ⚠️ APP 改造：清单现在是异步从后端拉的，模块加载时本函数只跑一次，
+        // 那一刻 IMAGE_POOL 大概率还是空的，所以这里只是打底。
+        // 真正准确的尺寸由 config.js 在清单到达后调 rebuildSizeTable() 重算。
         const entry = IMAGE_POOL[i];
         if (entry && entry.w > 0 && entry.h > 0) {
             ratio = entry.w / entry.h;
@@ -58,6 +96,20 @@ function buildSizeTable() {
 
 buildSizeTable();
 
+/**
+ * 清单从后端到达后重算基准尺寸表。
+ *
+ * ⚠️ APP 改造新增：buildSizeTable() 在模块加载时只跑一次，那时后端清单
+ * 还没到（fetch 是异步的），所以用的是 FALLBACK_RATIOS 里的近似比例。
+ * 真正的比例要和照片一致，否则卡片会被拉变形（尤其是 16:9 横图按 3:4 渲染）。
+ *
+ * 由 config.js 在 IMAGE_POOL 填充完成后调用。原地改写 BASE_W / BASE_H，
+ * 导出引用不变，renderer / PhotoWall 里已经拿到数组的代码自动生效。
+ */
+export function rebuildSizeTable() {
+    buildSizeTable();
+}
+
 // ----------------------------------------------------------------
 //  图片地址：相对路径必须拼上 import.meta.env.BASE_URL，
 //  否则部署在子路径（GitHub Pages 项目站点）时会 404。
@@ -65,12 +117,39 @@ buildSizeTable();
 // import.meta.env 由 Vite 注入；直接跑 Node（测试 / SSR）时不存在，故做防御性取值。
 const BASE_URL = (import.meta.env && import.meta.env.BASE_URL) || '/';
 
+// ----------------------------------------------------------------
+//  ⚠️ APP 改造：照片已不在包内
+//  ----------------------------------------------------------------
+//  原实现直接拼 'images/thumbnails/N.webp'，那是构建期随包发布的静态文件。
+//  现在清单来自 /api/photos，每条记录自带 thumb / full 两个【后端签名 URL】
+//  （形如 http://<host>:18000/api/photos/<id>/thumb?exp=...&sig=...）。
+//
+//  所以必须先查清单里的真实地址；只有在清单里找不到该序号时，
+//  才退回原来的站内相对路径 —— 这样即使后端异常，页面也不会整片崩掉，
+//  而且保留了未来「本地预览 / 离线包」的可能性。
+//
+//  match 用 find 而不是下标取值：IMAGE_POOL 已按 id 升序排好，
+//  但删照片后 id 会不连续（例如 1,2,4,7...），下标与 id 不再一一对应，
+//  用 IMAGE_POOL[i - 1] 会拿到错位的图。
+// ----------------------------------------------------------------
+function entryById(i) {
+    return IMAGE_POOL.find((e) => e && e.id === i) || null;
+}
+
 export function thumbUrl(i) {
-    return assetUrl('images/thumbnails/' + i + '.webp', BASE_URL);
+    const e = entryById(i);
+    const remote = e && (e.thumb || e.full);
+    return remote
+        ? assetUrl(remote, BASE_URL)
+        : assetUrl('images/thumbnails/' + i + '.webp', BASE_URL);
 }
 
 export function fullUrl(i) {
-    return assetUrl('images/full/' + i + '.webp', BASE_URL);
+    const e = entryById(i);
+    const remote = e && (e.full || e.thumb);
+    return remote
+        ? assetUrl(remote, BASE_URL)
+        : assetUrl('images/full/' + i + '.webp', BASE_URL);
 }
 
 // 由 (col,row) 反解图片序号（与旧实现完全相同的散列）
@@ -83,8 +162,8 @@ export function imageIndexAt(col, row) {
 // 浏览器会为了 1x 请求一张比现有缩略图更小的图，把卡片糊掉。
 // 这里只做原生 width/height 提示，避免解码前布局跳动。
 function applyImageSource(img, imgIdx) {
-    const e = IMAGE_POOL[imgIdx - 1];
-    img.src = thumbUrl(imgIdx);
+    const e = entryById(imgIdx);
+    setImgSrc(img, thumbUrl(imgIdx));
     if (e && e.w > 0 && e.h > 0) {
         img.width = e.w;
         img.height = e.h;
@@ -107,12 +186,12 @@ function applyFullImage(card, hovered) {
     if (hovered) {
         if (!img.dataset.fullLoaded) {
             img.dataset.fullLoaded = '1';
-            img.src = fullUrl(card.imgIdx);
+            setImgSrc(img, fullUrl(card.imgIdx));
         }
     } else if (img.dataset.fullLoaded) {
         // 离开后换回缩略图，避免在多张卡片间移动时把 20 张大图全部驻留内存
         delete img.dataset.fullLoaded;
-        img.src = thumbUrl(card.imgIdx);
+        setImgSrc(img, thumbUrl(card.imgIdx));
     }
 }
 

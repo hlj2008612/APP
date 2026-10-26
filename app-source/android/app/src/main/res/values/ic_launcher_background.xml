@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标背景色。方案 C 使用 #0D0D0D（与页面底色、启动画面同色）。
+  这是全工程唯一一处 ic_launcher_background 定义，别处不要重复。
+  （XML 注释里不能出现连续两个减号，所以 CSS 变量名在这里不做原样书写。）
+
+  如果改用方案 A（深碧绿）或方案 B（紫蓝渐变），两种做法：
+    · 纯色：直接把它改成 #0C2233（A）或 #8B6CE8（B）
+    · 渐变：改成 @drawable/ic_launcher_background_gradient（已提供）
+-->
+<resources>
+    <color name="ic_launcher_background">#0D0D0D</color>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+（API 31）启动画面配色。
+  这些值被 res/values-v31/styles.xml 里的 windowSplashScreen* 引用；
+  放在默认 values/ 里，保证低版本编译时也能解析到引用。
+
+  改动时注意：splash_background 必须和 ic_launcher_background、
+  capacitor.config.json 的 SplashScreen.backgroundColor 三者一致，
+  否则冷启动时会出现「闪一下别的底色」。
+-->
+<resources>
+    <!-- 启动画面底色：与 main.css 的背景色变量（#0d0d0d）一致 -->
+    <color name="splash_background">#0D0D0D</color>
+
+    <!-- 品牌紫，备用（例如日后要把启动图标垫成紫色底时引用） -->
+    <color name="splash_icon_background">#8B6CE8</color>
+</resources>

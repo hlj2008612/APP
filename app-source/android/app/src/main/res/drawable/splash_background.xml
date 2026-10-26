@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  启动画面背景色（drawable）。纯色 + 居中图标交给 styles 处理。
+
+  为什么不用 @mipmap/ic_launcher 整图：自适应图标整图贴进来，
+  系统还会再给它套一次遮罩，深色底叠深色底，圆角一圈会露出来。
+
+  ⚠️ 与 values/splash_colors.xml 的 splash_background 保持一致。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/splash_background" />
+        </shape>
+    </item>
+</layer-list>

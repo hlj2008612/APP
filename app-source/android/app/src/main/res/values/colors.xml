@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  品牌色板（设计与 Android 资源共用）。
+  ===============================================================
+  取值来源（已核对 src/ 里的实际代码，不是估的）：
+    src/assets/main.css      背景色变量 bg = #0d0d0d
+                             主题色变量 theme-color = #8b6ce8
+    src/views/Login.vue      按钮 #4a9eff / hover #3a7edf
+    src/views/PhotoWall.vue  悬浮按钮描边 #4a9eff
+    src/components/NavBar.vue 渐变 #4a9eff → #a855f7
+    public/favicon.svg       紫 #863bff / 深紫 #7e14ff / 冰紫 #ede6ff / 青蓝 #47bfff
+
+  ⚠️ ic_launcher_background 的唯一定义在 res/values/ic_launcher_background.xml，
+     不要在本文件重复定义同名 color（aapt 会报 duplicate resource）。
+  ⚠️ XML 注释里不能出现连续两个减号，写变量名时请用引号或改名描述。
+-->
+<resources>
+    <!-- 品牌色（与网页端 token 对齐） -->
+    <color name="brand_primary">#8B6CE8</color>   <!-- 紫：CSS 变量 theme-color -->
+    <color name="brand_accent">#4A9EFF</color>    <!-- 蓝：登录页/照片墙按钮色 -->
+    <color name="brand_violet">#A855F7</color>    <!-- NavBar 渐变终点 -->
+    <color name="brand_dark">#0D0D0D</color>      <!-- 页面底色（CSS 变量 bg） -->
+    <color name="brand_text">#E0E0E0</color>      <!-- 正文色 -->
+
+    <!-- 通知图标底色（通知栏小图标本身是白色剪影，见 drawable-*/ic_stat_photowall.png） -->
+    <color name="brand_notification">#FFFFFF</color>
+</resources>

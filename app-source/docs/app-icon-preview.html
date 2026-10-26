@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>美琴的照片墙 · APP 图标方案对比</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d0d0d; --card:#16161a; --line:#2a2a30; --text:#e6e6ea; --muted:#9a9aa6; --primary:#8b6ce8; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:32px 20px 64px; background:var(--bg); color:var(--text);
+         font: 15px/1.7 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  h1 { font-size:22px; font-weight:600; letter-spacing:.02em; margin:0 0 6px; }
+  .lead { color:var(--muted); margin:0 0 28px; max-width:70ch; }
+  .plan { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; margin-bottom:24px; }
+  .plan h2 { font-size:17px; margin:0 0 16px; font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:14px; }
+  figure { margin:0; border-radius:12px; overflow:hidden; background:#242429; display:flex; flex-direction:column; }
+  figure img { display:block; width:100%; height:auto; }
+  figcaption { font-size:12px; color:var(--muted); text-align:center; padding:8px 4px; }
+  .wall { padding:18px; align-items:center; justify-content:center; }
+  .wall img { width:96px; height:96px; border-radius:22px; box-shadow:0 8px 22px rgba(0,0,0,.45); }
+  .wall.dark { background:linear-gradient(160deg,#151a2e,#08101a); }
+  .wall.light { background:linear-gradient(160deg,#eef1f8,#cfd8e8); }
+  .wall.light figcaption { color:#4a5262; }
+  .tiny { align-items:center; justify-content:center; padding:18px; }
+  .tiny img { width:48px; height:48px; border-radius:11px; image-rendering:auto; }
+  .detail { margin:14px 0 0; font-size:13px; }
+  a { color:var(--primary); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+</style>
+</head>
+<body>
+  <h1>美琴的照片墙 · APP 图标方案对比</h1>
+  <p class="lead">三套方案的 1024 画板、圆形遮罩、深/浅壁纸环境与 48px 小尺寸观感。
+     安全区与尺寸阵列详图见各方案下方链接；规范与落地步骤见 docs/app-icon-spec.md。</p>
+  
+    <section class="plan plan-a">
+      <h2>A 叠片（深碧绿）</h2>
+      <div class="grid">
+        <figure><img src="icon-preview/icon-A.png" alt=""><figcaption>1024 × 1024</figcaption></figure>
+        <figure><img src="icon-preview/icon-A-round.png" alt=""><figcaption>圆形遮罩</figcaption></figure>
+        <figure class="wall dark"><img src="icon-preview/icon-A.png" alt=""><figcaption>深色壁纸</figcaption></figure>
+        <figure class="wall light"><img src="icon-preview/icon-A.png" alt=""><figcaption>浅色壁纸</figcaption></figure>
+        <figure class="tiny"><img src="icon-preview/icon-A.png" alt=""><figcaption>48px</figcaption></figure>
+      </div>
+      <p class="detail"><a href="icon-preview/sheet-A.png">查看安全区 / 尺寸阵列详图 →</a></p>
+    </section>
+    <section class="plan plan-b">
+      <h2>B 网格墙（紫蓝渐变）</h2>
+      <div class="grid">
+        <figure><img src="icon-preview/icon-B.png" alt=""><figcaption>1024 × 1024</figcaption></figure>
+        <figure><img src="icon-preview/icon-B-round.png" alt=""><figcaption>圆形遮罩</figcaption></figure>
+        <figure class="wall dark"><img src="icon-preview/icon-B.png" alt=""><figcaption>深色壁纸</figcaption></figure>
+        <figure class="wall light"><img src="icon-preview/icon-B.png" alt=""><figcaption>浅色壁纸</figcaption></figure>
+        <figure class="tiny"><img src="icon-preview/icon-B.png" alt=""><figcaption>48px</figcaption></figure>
+      </div>
+      <p class="detail"><a href="icon-preview/sheet-B.png">查看安全区 / 尺寸阵列详图 →</a></p>
+    </section>
+    <section class="plan plan-c">
+      <h2>C 叠卡（深色 + 紫蓝辉光）</h2>
+      <div class="grid">
+        <figure><img src="icon-preview/icon-C.png" alt=""><figcaption>1024 × 1024</figcaption></figure>
+        <figure><img src="icon-preview/icon-C-round.png" alt=""><figcaption>圆形遮罩</figcaption></figure>
+        <figure class="wall dark"><img src="icon-preview/icon-C.png" alt=""><figcaption>深色壁纸</figcaption></figure>
+        <figure class="wall light"><img src="icon-preview/icon-C.png" alt=""><figcaption>浅色壁纸</figcaption></figure>
+        <figure class="tiny"><img src="icon-preview/icon-C.png" alt=""><figcaption>48px</figcaption></figure>
+      </div>
+      <p class="detail"><a href="icon-preview/sheet-C.png">查看安全区 / 尺寸阵列详图 →</a></p>
+    </section>
+</body>
+</html>

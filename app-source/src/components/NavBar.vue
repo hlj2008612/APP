@@ -24,6 +24,16 @@
       </div>
     </div>
     <div class="nav-right">
+      <!--
+        诊断入口（APP 化新增）。
+        【为什么要放在导航栏】诊断页的入口原来只在登录页，而登录成功后
+        路由守卫不允许再回到 /login —— 结果就是「已登录时永远打不开诊断页」。
+        偏偏「图片加载实测」那三行判据必须在已登录（拿得到清单）时才跑得出来。
+        手机上没有开发者工具，这里就是唯一的现场取证入口。
+      -->
+      <a href="#" class="diag-btn" aria-label="运行诊断" @click.prevent="goDiag">
+        <span class="icon">?</span><span class="diag-text"> 诊断</span>
+      </a>
       <a href="#" @click.prevent="logout" class="logout-btn">
         <span class="icon">⏻</span> 退出
       </a>
@@ -366,6 +376,19 @@ const logout = () => {
   emit('logout');
 };
 
+/**
+ * 打开诊断页。
+ * 走 window.playPageTransition（App.vue 暴露的统一转场入口），
+ * 与照片墙关闭按钮同一条路径，避免绕开覆盖层直接硬跳。
+ */
+const goDiag = () => {
+  if (typeof window !== 'undefined' && typeof window.playPageTransition === 'function') {
+    window.playPageTransition('/diag');
+    return;
+  }
+  window.location.hash = '#/diag';
+};
+
 /* ==========================================================================
    手机端抽屉（<=767px）
 
@@ -403,9 +426,20 @@ const closeMenu = (restoreFocus = true) => {
 let lastInputWasKeyboard = false;
 const markKeyboard = () => { lastInputWasKeyboard = true; };
 const markPointer = () => { lastInputWasKeyboard = false; };
+/** 返回键处理器注销函数（离开页面时调用，避免影响其它页面）。 */
+let undoBack = () => {};
 onMounted(() => {
   window.addEventListener('keydown', markKeyboard, true);
   window.addEventListener('pointerdown', markPointer, true);
+  // 返回键：手机端抽屉开着时，先关抽屉而不是退出 APP
+  const register = typeof window !== 'undefined' ? window.__pwRegisterBack__ : null;
+  if (typeof register === 'function') {
+    undoBack = register(() => {
+      if (!menuOpen.value) return false;
+      closeMenu(false);
+      return true;
+    });
+  }
 });
 
 /** 抽屉里点某张卡片：先关抽屉（不还焦点），再走与桌面端完全相同的导航路径。 */
@@ -491,6 +525,7 @@ watch(menuOpen, async (open) => {
 // 否则 body 会一直保持 overflow:hidden。unlockScroll 幂等，未锁过时什么也不写。
 onUnmounted(() => {
   unlockScroll();
+  undoBack();
   window.removeEventListener('keydown', markKeyboard, true);
   window.removeEventListener('pointerdown', markPointer, true);
 });
@@ -555,6 +590,22 @@ onUnmounted(() => {
   color: #fff; text-decoration: none; font-size: 14px; padding: 8px 16px; border-radius: 20px;
   background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
   display: flex; align-items: center; gap: 6px; transition: all 0.3s;
+}
+
+/* 诊断入口：比退出弱一档（不抢视觉），但必须能一眼找到 —— 见模板里的注释。 */
+.diag-btn {
+  color: rgba(255, 255, 255, 0.72); text-decoration: none; font-size: 13px;
+  padding: 7px 12px; border-radius: 20px; margin-right: 8px;
+  background: transparent; border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex; align-items: center; gap: 5px; transition: all 0.3s;
+}
+.diag-btn:hover {
+  color: #fff; background: rgba(255, 255, 255, 0.06);
+}
+@media (max-width: 767px) {
+  /* 窄屏空间紧张：只留问号图标，避免把「退出」挤出屏幕 */
+  .diag-btn .diag-text { display: none; }
+  .diag-btn { padding: 7px 9px; }
 }
 .logout-btn:hover { background: rgba(255, 70, 70, 0.2); border-color: rgba(255, 70, 70, 0.5); }
 

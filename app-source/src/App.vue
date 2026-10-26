@@ -27,6 +27,7 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import NavBar from './components/NavBar.vue';
 import PtrTransition from './components/PtrTransition.vue';
+import { clearToken } from './core/api.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -34,7 +35,9 @@ const transitionRef = ref(null);
 
 // 退出的转场目标：/login 不在下面的顺序表里，方向会回退成 'next'，
 // 擦除照常从右侧进入 —— 与参考站"路径不在表内时仍播动画"的行为一致。
-const LOGOUT_PATH = '/login';
+// logout=1 是给路由守卫的放行标记：守卫在 /login 上见到已登录会弹回 '/'，
+// 而退出这一跳必须先清掉令牌，再带着这个标记进入（见 router/index.js）。
+const LOGOUT_PATH = '/login?logout=1';
 
 // 方向表：决定擦除从哪一侧进入（next 从右、prev 从左）。
 // 顺序与导航栏的排列一致，与参考站 ROUTE_ORDER 的作用相同。
@@ -93,6 +96,66 @@ const handleNavigate = async (item) => {
   await runTransition(item.path);
 };
 
+/* ================================================================
+   返回键：让 Android 的物理返回键逐层后退，而不是一点就退回桌面
+
+   【为什么要自己记账】本项目的导航是 router.push 在转场之后发起的，
+   属于「程序化导航」；Capacitor 的 WebView 只认 history 栈，而我们的
+   转场覆盖层会先等动画再 push，短时间内连点也不会堆出可用历史。
+   实测（MuMu，Android 15）：任何页面按返回都直接回到桌面，弹层也不会关。
+
+   所以这里维护一个只服务于返回键的轻量栈：
+   - 每次成功导航把「目标路径」压栈（同一路径去重）；
+   - MainActivity 收到返回键 → 调用 window.__pwBack__()：
+     true  = 已经处理了（关弹层 / 后退一层）
+     false = 前端没有可退的了，交给系统（退出 APP）
+   - 弹层（画报资料卡、大图查看器、手机端菜单）通过 registerBackHandler 注册，
+     最后注册的最先被调用（后进先出），只管自己那一层。
+   ================================================================ */
+const backHandlers = [];
+const pathStack = ['/'];
+
+/** 注册一个「返回键先关掉我」的处理器，返回注销函数。 */
+const registerBackHandler = (fn) => {
+  if (typeof fn !== 'function') return () => {};
+  backHandlers.push(fn);
+  return () => {
+    const i = backHandlers.lastIndexOf(fn);
+    if (i >= 0) backHandlers.splice(i, 1);
+  };
+};
+
+/** 供 MainActivity 调用：返回 true 表示前端已消费这次返回键。 */
+const back = () => {
+  // 1) 先让最上层弹层自己关掉
+  for (let i = backHandlers.length - 1; i >= 0; i -= 1) {
+    const fn = backHandlers[i];
+    if (!fn || !fn()) continue;
+    backHandlers.splice(i, 1);
+    return true;
+  }
+  // 2) 再退一层页面（登录页是根，不再往回退）
+  if (pathStack.length <= 1) return false;
+  pathStack.pop();
+  const prev = pathStack[pathStack.length - 1];
+  // 返回键不做「下一跳」方向的转场，直接回到上一层，并改播 prev 方向
+  router.push(prev).catch(() => {});
+  return true;
+};
+
+// 导航成功后记账（转场期间不记，转场被丢弃时也不记）
+router.afterEach((to) => {
+  if (to.path === '/login') {
+    // 退出登录后回到登录页：栈清空，从登录页重新开始
+    pathStack.length = 1;
+    pathStack[0] = '/login';
+    return;
+  }
+  if (pathStack[pathStack.length - 1] !== to.path) pathStack.push(to.path);
+  // 上限保护：长时间浏览也不让栈无限长
+  if (pathStack.length > 30) pathStack.splice(0, pathStack.length - 30);
+});
+
 /**
  * 退出登录（带转场）。
  *
@@ -102,6 +165,10 @@ const handleNavigate = async (item) => {
  * NavBar.logout() 正是先同步清除、再 emit('logout')，时序已经保证。
  */
 const handleLogout = async () => {
+  // 退出前必须【真正清掉令牌】。NavBar.logout() 只清了 photoWallLoggedIn 标记，
+  // 而路由守卫的 isLoggedIn() 是「有 token 就算已登录」——
+  // token 不清，跳 /login 立刻被弹回 '/'，表现就是「点退出没反应」（实测复现）。
+  try { clearToken(); } catch (e) { /* 存储不可用时忽略，下面照样跳转 */ }
   await runTransition(LOGOUT_PATH);
 };
 
@@ -120,12 +187,18 @@ const handleLogout = async () => {
 onMounted(() => {
   if (typeof window !== 'undefined') {
     window.playPageTransition = (target) => runTransition(target);
+    // Android 返回键桥：见上面 back() 的说明
+    window.__pwBack__ = back;
+    // 供子组件（画报资料卡/大图查看器、导航栏菜单）注册「返回键先关我」
+    window.__pwRegisterBack__ = registerBackHandler;
   }
 });
 
 onUnmounted(() => {
-  if (typeof window !== 'undefined' && window.playPageTransition) {
-    delete window.playPageTransition;
+  if (typeof window !== 'undefined') {
+    if (window.playPageTransition) delete window.playPageTransition;
+    if (window.__pwBack__ === back) delete window.__pwBack__;
+    if (window.__pwRegisterBack__ === registerBackHandler) delete window.__pwRegisterBack__;
   }
 });
 </script>

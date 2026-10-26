@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网络安全策略（1.0.7 起全面收紧为 HTTPS）
+
+  【历史】1.0.0~1.0.6：后端是局域网 http://IP:18000，没有证书，
+  所以 base-config 必须 cleartextTrafficPermitted="true"，
+  AndroidManifest 里还要 android:usesCleartextTraffic="true"，
+  否则所有接口和图片都会被系统按「CLEARTEXT not permitted」拦断。
+
+  【2026-10-24 起】接入 Cloudflare Tunnel，公网入口是 https://mqz.ccwu.cc，
+  端到端已经是 HTTPS（浏览器→Cloudflare 由边缘证书保证，Cloudflare→源站
+  走 cloudflared 的加密隧道）。因此这里恢复系统默认：
+
+    · cleartextTrafficPermitted="false" —— 全站只许 HTTPS
+    · trust-anchors 只信系统证书
+
+  【保留的一条明文例外】192.168.5.129 / 192.168.3.26 是本机虚拟机与
+  宿主机的局域网调试入口。为了不让「本地联调」这个能力彻底消失，
+  单独给这两个网段开一个 domain-config。它只影响这两个内网地址，
+  公网入口与任何其它域名仍然是强制 HTTPS。
+
+  如果要彻底禁止明文：删掉下面整段 domain-config 即可。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- 仅限本机虚拟机（调试/回退用），不要扩展到公网地址 -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.5.129</domain>
+        <domain includeSubdomains="false">192.168.3.26</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

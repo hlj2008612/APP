@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标背景（方案 A/B 使用渐变底时把 ic_launcher_background.xml 改成
+  引用本文件即可，方案 C 用纯色，不引用）。
+
+  108dp 画布。渐变要「铺满且留余量」：系统会按 72dp/104dp 遮罩裁切，
+  渐变端点落在画布外一点，才不会被裁出硬边。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 底色：先铺满，保证任何遮罩下都不透明 -->
+    <path
+        android:fillColor="#0C2233"
+        android:pathData="M0,0h108v108h-108z" />
+
+    <!-- 左上紫光（方案 C）/ 右上青光（方案 A） -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:startColor="#2B8B6CE8"
+                android:endColor="#008B6CE8" />
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="108"
+                android:startY="108"
+                android:endX="0"
+                android:endY="0"
+                android:startColor="#1A4A9EFF"
+                android:endColor="#004A9EFF" />
+        </aapt:attr>
+    </path>
+    <!-- 底部压暗，让顶部提亮有层次 -->
+    <path android:pathData="M0,54h108v54h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="54"
+                android:endX="0"
+                android:endY="108"
+                android:startColor="#000D0D0D"
+                android:endColor="#B30D0D0D" />
+        </aapt:attr>
+    </path>
+</vector>

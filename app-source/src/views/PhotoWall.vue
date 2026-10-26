@@ -14,6 +14,7 @@
 import { onMounted, onUnmounted, ref, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { initPhotoWall, destroyPhotoWall, installCanvasAPI } from '../core/main.js';
+import { getToken } from '../core/api.js';
 
 const canvasRef = ref(null);
 const router = useRouter();
@@ -23,8 +24,22 @@ const router = useRouter();
 let generation = 0;
 
 onMounted(async () => {
-  // 未登录则回到登录页
-  if (sessionStorage.getItem('photoWallLoggedIn') !== 'true') {
+  // 未登录则回到登录页。
+  //
+  // 【2026-10-24 修复：必须认令牌，不能只认 sessionStorage 标记】
+  // APP 里登录态存在 localStorage['pw.token']（见 core/api.js 的 isNative 分支），
+  // 而 sessionStorage 的 photoWallLoggedIn 只在【登录页那一次】写入：
+  //   - 杀进程重开后 sessionStorage 被清空 → 点「照片墙」会被弹回首页；
+  //   - Web 版直接刷新页面同理。
+  // 实测表现就是「点照片墙没反应 / 闪一下又回首页」。
+  // 路由守卫用的是同一条判据（token 优先、标记兜底），这里与它保持一致。
+  let loggedIn = false;
+  try {
+    loggedIn = !!getToken() || sessionStorage.getItem('photoWallLoggedIn') === 'true';
+  } catch (e) {
+    loggedIn = !!getToken();
+  }
+  if (!loggedIn) {
     router.push('/login');
     return;
   }

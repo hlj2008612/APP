@@ -1,21 +1,28 @@
 {
   "name": "photo-wall-vue",
   "private": true,
-  "version": "2.3.0",
+  "version": "1.0.6",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:app": "node scripts/build-app.mjs",
     "preview": "vite preview",
     "optimize:images": "node scripts/optimize-images.mjs",
-    "analyze": "node scripts/analyze-dist.mjs"
+    "analyze": "node scripts/analyze-dist.mjs",
+    "cap:sync": "cap sync android",
+    "apk:debug": "cd android && gradlew.bat assembleDebug",
+    "apk:release": "cd android && gradlew.bat assembleRelease"
   },
   "dependencies": {
-    "vue": "^3.4.0",
-    "vue-router": "^4.3.0"
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/cli": "^6.2.2",
+    "@capacitor/core": "^6.2.2",
+    "vue": "^3.5.43",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^5.0.0",
-    "vite": "^5.0.0"
+    "@vitejs/plugin-vue": "^6.0.9",
+    "vite": "^8.3.0"
   }
 }

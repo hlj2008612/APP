@@ -3,24 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- ⚠️ APP 改造：改成相对路径。原来写死 /favicon.svg 是给 gh-pages 根域
+         用的，但 APK 里页面源是 capacitor://localhost，绝对路径能解析到，
+         而部署到子目录（或以后换域名）又会失效。相对路径两头都对。 -->
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
 
-    <title>美琴的照片墙</title>
-    <meta name="description" content="美琴的照片墙" />
+    <title>浮光馆</title>
+    <meta name="description" content="浮光馆" />
     <meta name="theme-color" content="#0d0d0d" />
     <meta name="color-scheme" content="dark" />
     <meta name="robots" content="index, follow" />
 
     <!-- Open Graph / 社交分享 -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="美琴的照片墙" />
-    <meta property="og:title" content="美琴的照片墙" />
-    <meta property="og:description" content="美琴的照片墙" />
+    <meta property="og:site_name" content="浮光馆" />
+    <meta property="og:title" content="浮光馆" />
+    <meta property="og:description" content="浮光馆" />
     <meta property="og:url" content="https://zmq-hlj.ccwu.cc/" />
     <meta property="og:locale" content="zh_CN" />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="美琴的照片墙" />
-    <meta name="twitter:description" content="美琴的照片墙" />
+    <meta name="twitter:title" content="浮光馆" />
+    <meta name="twitter:description" content="浮光馆" />
 
     <!--
       内联深色底色：CSS 是异步加载的，若等它到达再上色会先闪一帧白屏。
