@@ -1,0 +1,61 @@
+# ================================================================
+#  统一行尾策略
+#  ----------------------------------------------------------------
+#  背景：Windows 上 core.autocrlf=true 会让所有文本文件在
+#  「工作区 CRLF / 仓库 LF」之间来回转换，克隆后 git status 立刻
+#  报几十个「已修改」，但内容其实一字未变 —— 噪音大、容易误提交。
+#
+#  这里改成按文件类型显式指定：
+#    text=auto  —— 文本文件统一存 LF
+#    -text      —— 二进制文件原样存取，绝不转换
+#
+#  配合 `git config core.autocrlf false` 使用效果最好。
+# ================================================================
+
+# 默认：文本文件在仓库中统一用 LF
+* text=auto
+
+# ---- 明确为文本，强制 LF ----
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.cjs       text eol=lf
+*.vue       text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.xml       text eol=lf
+*.gradle    text eol=lf
+*.pro       text eol=lf
+*.properties text eol=lf
+*.java      text eol=lf
+*.py        text eol=lf
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+
+# ---- Windows 批处理与 PowerShell 保留 CRLF（否则 cmd.exe / pwsh 解析异常）----
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# ---- 二进制文件：不做任何转换 ----
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.webp      binary
+*.ico       binary
+*.svg       text eol=lf
+*.apk       binary
+*.jar       binary
+*.aab       binary
+*.jks       binary
+*.keystore  binary
+*.zip       binary
+*.woff      binary
+*.woff2     binary
+*.ttf       binary
+*.otf       binary
