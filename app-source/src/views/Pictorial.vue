@@ -309,48 +309,36 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, 
 // config.js 的 validatePool() 会校验张数与字段，无效时返回空数组。
 // 绕过它直接取模，空池时 entry 是 undefined，读 entry.thumb 会抛 TypeError
 // 整页白屏（Cinema.vue 里记录过同样的实测）。空池时本页渲染空网格，符合规格第 5.4 条。
-import { IMAGE_POOL, whenImagesReady } from '../core/config.js';
+import { IMAGE_POOL } from '../core/config.js';
 import { assetUrl } from '../core/imageManifest.js';
 
 /**
- * 卡片数据（源自后端清单）。
- *
- * ⚠️ APP 改造：原来是 `const cards = IMAGE_POOL.map(...)` 的静态常量，
- * 但清单现在由 /api/photos 异步返回 —— 模块初始化时 IMAGE_POOL 还是空的，
- * 静态常量会永远停在空数组，画报页整页空白。
- * 所以改成 ref，数据到达后在 onMounted 里重建一次。
- *
- * 地址必须走 assetUrl(entry.thumb)：清单里是后端返回的绝对地址
- * （带签名），assetUrl 会原样放行；老数据是 "images/..." 相对路径时
- * 仍然按 BASE_URL 拼接（见 imageManifest.js 的三条分支）。
+ * 卡片数据（一次性构建，不随列数变化重建）。
+ * 地址必须走 assetUrl(entry.thumb)：清单里是 "images/thumbnails/1.webp" 这样的
+ * 相对路径，前缀由 import.meta.env.BASE_URL 提供，子路径部署才不会 404。
+ * 这里绝不能写死 /images/thumbnails/x.webp（规格第 5.1 条）。
  */
-function buildCards() {
-  return IMAGE_POOL
-    // 清单条目必须带 id 与 thumb：缺 id 会让 :key 与 data-uid 全部变成 undefined
-    // （Vue 报重复 key、卡片无法区分），缺 thumb 会请求 /undefined 拿 404。
-    .filter((entry) => entry && entry.id != null && entry.thumb)
-    .map((entry, i) => ({
-      uid: entry.id,
-      src: assetUrl(entry.thumb),
-      // 头像弹层用的大图：清单里 full 是 1600px 版本（见 imageManifest.js 的 ImageEntry）。
-      // 继续走 assetUrl()，而不是手拼路径 —— 子路径部署（gh-pages 的 /mqz/）才不会 404。
-      // full 字段缺失时退回 thumb：宁可糊一点，也不要弹层里是张裂图。
-      full: assetUrl(entry.full || entry.thumb),
-      w: entry.w,
-      h: entry.h,
-      // 原图像素宽高，弹层按它算显示高宽比（w/h 是缩略图的宽度，比例相同但语义不同）。
-      fw: entry.w,
-      fh: entry.h,
-      // 首屏前几张优先加载：全部 lazy 会让 LCP 等到滚动容器的懒加载判定，
-      // 首屏出现一段空白。6 张 ≈ 一屏两行的量。
-      eager: i < 6,
-    }));
-}
-
-const cards = ref(buildCards());
-
-// 异步等清单时页面可能已经卸载 —— 到达后不能再动已销毁的 DOM。
-let isUnmounted = false;
+const cards = IMAGE_POOL
+  // 清单条目必须带 id 与 thumb：缺 id 会让 :key 与 data-uid 全部变成 undefined
+  // （Vue 报重复 key、卡片无法区分），缺 thumb 会请求 /undefined 拿 404。
+  // 生成脚本目前总会写出这两个字段，这里只是防御，不改变正常路径。
+  .filter((entry) => entry && entry.id != null && entry.thumb)
+  .map((entry, i) => ({
+    uid: entry.id,
+    src: assetUrl(entry.thumb),
+    // 头像弹层用的大图：清单里 full 是 1600px 版本（见 imageManifest.js 的 ImageEntry）。
+    // 继续走 assetUrl()，而不是手拼路径 —— 子路径部署（gh-pages 的 /mqz/）才不会 404。
+    // full 字段缺失时退回 thumb：宁可糊一点，也不要弹层里是张裂图。
+    full: assetUrl(entry.full || entry.thumb),
+    w: entry.w,
+    h: entry.h,
+    // 原图像素宽高，弹层按它算显示高宽比（w/h 是缩略图的宽度，比例相同但语义不同）。
+    fw: entry.w,
+    fh: entry.h,
+    // 首屏前几张优先加载：全部 lazy 会让 LCP 等到滚动容器的懒加载判定，
+    // 首屏出现一段空白。6 张 ≈ 一屏两行的量。
+    eager: i < 6,
+  }));
 
 /* ------------------------------------------------------------ 列数 */
 
@@ -438,7 +426,7 @@ const estimateHeight = (columnWidth, card) => {
  */
 function assignColumns(count) {
   const buckets = Array.from({ length: count }, () => []);
-  if (!cards.value.length || count <= 0) return buckets;
+  if (!cards.length || count <= 0) return buckets;
 
   const totals = new Array(count).fill(0);
   // 【取卡片实宽，不是列的 clientWidth】列上有 padding-left: 1rem（窄屏 0.5rem），
@@ -447,7 +435,7 @@ function assignColumns(count) {
   // 横图误差小、竖图误差大，正好和「竖图更高」的方向叠加。
   const columnWidth = gridRef.value?.querySelector('.card-shell')?.clientWidth || 262;
 
-  for (const card of cards.value) {
+  for (const card of cards) {
     let target = 0;
     for (let i = 1; i < count; i += 1) {
       if (totals[i] < totals[target]) target = i;
@@ -625,20 +613,9 @@ onMounted(() => {
   window.addEventListener('resize', onResize, { passive: true });
   // 点窗口外（切到别的应用 / 地址栏）时关闭预览：非模态弹层留在屏幕上没有意义。
   window.addEventListener('blur', handleWindowBlur);
-
-  // 照片清单是异步来的（/api/photos）。到达后重建卡片数据再铺一次版；
-  // 已经就绪时这个 then 立即执行，重建结果与初始值相同，rebuild() 的
-  // layoutKey 指纹会让它成为空操作。
-  whenImagesReady().then(() => {
-    if (isUnmounted) return;
-    cards.value = buildCards();
-    measured.clear();
-    rebuild();
-  });
 });
 
 onUnmounted(() => {
-  isUnmounted = true;
   window.removeEventListener('resize', onResize);
   window.removeEventListener('blur', handleWindowBlur);
 

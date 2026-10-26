@@ -1,40 +1,30 @@
-# ================================================================
-#  「美琴的照片墙」APP
-# ================================================================
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# ---- 依赖与构建产物 ----
-node_modules/
-dist/
-dist-ssr/
+node_modules
+dist
+dist-ssr
 *.local
+
+# 构建体积报告（dist/ 已整体忽略，这行是防止有人把它挪到根目录后误提交）
 .build-report.json
 
-# ---- Capacitor / Android 构建产物 ----
-app-source/android/.gradle/
-app-source/android/app/build/
-app-source/android/build/
-app-source/android/local.properties
-
-# ---- 签名材料，绝对不能进仓库 ----
-*.jks
-*.keystore
-app-source/android/keystore/
-app-source/android/keystore.properties
-
-# ---- 编辑器 ----
-.idea/
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
 .DS_Store
-*.swp
-*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# ---- 构建时临时挪开的目录 ----
-.public-images-stash/
-
-# ==================================================================
-#  ⚠ 照片不放仓库
-#  public/images/ 里是原项目自带的照片副本。APP 的照片存在私有虚拟机
-#  后端，仓库里一份都不该有 —— 一旦提交，任何人都能 clone 下来看到。
-# ==================================================================
-app-source/public/images/
-app-source/assets-src/
+# 用户临时投件的入口目录（内容已用数字编号收进 assets-src/images/zmq/，不纳入版本控制）
 新加照片/

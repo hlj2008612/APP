@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">美琴的照片墙</string>
-    <string name="title_activity_main">美琴的照片墙</string>
-    <string name="package_name">cc.ccwu.zmq.photowall</string>
-    <string name="custom_url_scheme">cc.ccwu.zmq.photowall</string>
-</resources>

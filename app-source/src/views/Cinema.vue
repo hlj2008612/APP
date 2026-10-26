@@ -135,11 +135,7 @@ const MARQUEE_TEXT =
 /** 序号补零，alt 文案用（照片 07 而不是 照片 7，等宽视觉更整齐）。 */
 const pad2 = (n) => String(n).padStart(2, '0');
 
-// ⚠️ APP 改造：原来这里是 `const POOL_SIZE = IMAGE_POOL.length`。
-// 清单改为 /api/photos 异步返回后，模块初始化时长度恒为 0，
-// 于是 buildColumns() 永远返回空数组，影院页整页没有照片。
-// 改成函数，每次构建时读当前张数。
-const poolSize = () => IMAGE_POOL.length;
+const POOL_SIZE = IMAGE_POOL.length;
 
 /**
  * 候选列数，从多到少。选列的算法会从 MAX 往下试，取第一个几何上成立的。
@@ -179,11 +175,10 @@ const pickInitialColumnCount = (width) => {
 const buildColumns = (count) => {
   // 空池（清单缺失或校验失败）时不构建任何列：舞台渲染成空的，
   // 跑马灯与骨架照常显示 —— 这是降级，不是崩溃。
-  const size = poolSize();
-  if (size === 0 || count <= 0) return [];
+  if (POOL_SIZE === 0 || count <= 0) return [];
 
   // 列数不能超过照片数，否则会出现没有任何卡片的空列（高度 0，动画跑在空气上）。
-  const effective = Math.min(count, size);
+  const effective = Math.min(count, POOL_SIZE);
 
   const buckets = Array.from({ length: effective }, () => []);
   IMAGE_POOL.forEach((entry, index) => {
@@ -252,7 +247,7 @@ const isColumnCountSafe = () => {
 
   // 单份内容 = 轨道的一半；屏幕上同时可见的卡片数 = ceil(列高 / 步长)
   const visible = Math.ceil(colH / step);
-  const minCards = Math.floor(poolSize() / colCount);
+  const minCards = Math.floor(POOL_SIZE / colCount);
   return minCards >= visible;
 };
 

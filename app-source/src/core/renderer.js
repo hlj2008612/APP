@@ -33,9 +33,6 @@ function buildSizeTable() {
         let ratio = FALLBACK_RATIOS[i] || 1;
 
         // 清单字段名是 w / h（不是 width / height），生成脚本定义的。
-        // ⚠️ APP 改造：清单现在是异步从后端拉的，模块加载时本函数只跑一次，
-        // 那一刻 IMAGE_POOL 大概率还是空的，所以这里只是打底。
-        // 真正准确的尺寸由 config.js 在清单到达后调 rebuildSizeTable() 重算。
         const entry = IMAGE_POOL[i];
         if (entry && entry.w > 0 && entry.h > 0) {
             ratio = entry.w / entry.h;
@@ -61,20 +58,6 @@ function buildSizeTable() {
 
 buildSizeTable();
 
-/**
- * 清单从后端到达后重算基准尺寸表。
- *
- * ⚠️ APP 改造新增：buildSizeTable() 在模块加载时只跑一次，那时后端清单
- * 还没到（fetch 是异步的），所以用的是 FALLBACK_RATIOS 里的近似比例。
- * 真正的比例要和照片一致，否则卡片会被拉变形（尤其是 16:9 横图按 3:4 渲染）。
- *
- * 由 config.js 在 IMAGE_POOL 填充完成后调用。原地改写 BASE_W / BASE_H，
- * 导出引用不变，renderer / PhotoWall 里已经拿到数组的代码自动生效。
- */
-export function rebuildSizeTable() {
-    buildSizeTable();
-}
-
 // ----------------------------------------------------------------
 //  图片地址：相对路径必须拼上 import.meta.env.BASE_URL，
 //  否则部署在子路径（GitHub Pages 项目站点）时会 404。
@@ -82,39 +65,12 @@ export function rebuildSizeTable() {
 // import.meta.env 由 Vite 注入；直接跑 Node（测试 / SSR）时不存在，故做防御性取值。
 const BASE_URL = (import.meta.env && import.meta.env.BASE_URL) || '/';
 
-// ----------------------------------------------------------------
-//  ⚠️ APP 改造：照片已不在包内
-//  ----------------------------------------------------------------
-//  原实现直接拼 'images/thumbnails/N.webp'，那是构建期随包发布的静态文件。
-//  现在清单来自 /api/photos，每条记录自带 thumb / full 两个【后端签名 URL】
-//  （形如 http://<host>:18000/api/photos/<id>/thumb?exp=...&sig=...）。
-//
-//  所以必须先查清单里的真实地址；只有在清单里找不到该序号时，
-//  才退回原来的站内相对路径 —— 这样即使后端异常，页面也不会整片崩掉，
-//  而且保留了未来「本地预览 / 离线包」的可能性。
-//
-//  match 用 find 而不是下标取值：IMAGE_POOL 已按 id 升序排好，
-//  但删照片后 id 会不连续（例如 1,2,4,7...），下标与 id 不再一一对应，
-//  用 IMAGE_POOL[i - 1] 会拿到错位的图。
-// ----------------------------------------------------------------
-function entryById(i) {
-    return IMAGE_POOL.find((e) => e && e.id === i) || null;
-}
-
 export function thumbUrl(i) {
-    const e = entryById(i);
-    const remote = e && (e.thumb || e.full);
-    return remote
-        ? assetUrl(remote, BASE_URL)
-        : assetUrl('images/thumbnails/' + i + '.webp', BASE_URL);
+    return assetUrl('images/thumbnails/' + i + '.webp', BASE_URL);
 }
 
 export function fullUrl(i) {
-    const e = entryById(i);
-    const remote = e && (e.full || e.thumb);
-    return remote
-        ? assetUrl(remote, BASE_URL)
-        : assetUrl('images/full/' + i + '.webp', BASE_URL);
+    return assetUrl('images/full/' + i + '.webp', BASE_URL);
 }
 
 // 由 (col,row) 反解图片序号（与旧实现完全相同的散列）
@@ -127,7 +83,7 @@ export function imageIndexAt(col, row) {
 // 浏览器会为了 1x 请求一张比现有缩略图更小的图，把卡片糊掉。
 // 这里只做原生 width/height 提示，避免解码前布局跳动。
 function applyImageSource(img, imgIdx) {
-    const e = entryById(imgIdx);
+    const e = IMAGE_POOL[imgIdx - 1];
     img.src = thumbUrl(imgIdx);
     if (e && e.w > 0 && e.h > 0) {
         img.width = e.w;
