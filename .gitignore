@@ -38,3 +38,6 @@ app-source/android/keystore.properties
 app-source/public/images/
 app-source/assets-src/
 新加照片/
+
+# 打包脚本产出目录（相对路径跑打包时会落到仓库根）
+03-安装包-APK/
