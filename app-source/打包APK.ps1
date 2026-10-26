@@ -20,7 +20,7 @@
 [CmdletBinding()]
 param(
     [string]$VersionName = '',
-    [string]$ApiBase = 'https://mqz.ccwu.cc',
+    [string]$ApiBase = 'https://www.r70539536.nyat.app:13900',
     [string]$BuildRoot = 'Z:\PuAppBuild',
     [switch]$BuildDebug,
     [switch]$SkipWebBuild
